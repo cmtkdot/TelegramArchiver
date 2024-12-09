@@ -11,13 +11,33 @@ export class TelegramArchiveBot {
   private mediaStoragePath: string;
 
   constructor(token: string) {
-    this.bot = new TelegramBot(token, { polling: true });
+    if (!token) {
+      throw new Error("Telegram bot token is required");
+    }
+    
+    this.bot = new TelegramBot(token, { 
+      polling: true,
+      filepath: false // Disable file downloading as we'll handle it manually
+    });
+    
     this.mediaStoragePath = path.join(process.cwd(), "media_storage");
     
     // Ensure media storage directory exists
     if (!fs.existsSync(this.mediaStoragePath)) {
       fs.mkdirSync(this.mediaStoragePath, { recursive: true });
     }
+
+    // Setup error handler
+    this.bot.on('error', async (error) => {
+      console.error('Telegram Bot Error:', error);
+      await this.logSystem('error', `Bot error: ${error.message}`);
+    });
+
+    // Setup polling error handler
+    this.bot.on('polling_error', async (error) => {
+      console.error('Polling Error:', error);
+      await this.logSystem('error', `Polling error: ${error.message}`);
+    });
   }
 
   async initialize() {
