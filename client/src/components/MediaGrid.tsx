@@ -22,15 +22,35 @@ export default function MediaGrid({ channelId, page = 1 }: MediaGridProps) {
           <div className="aspect-square relative">
             {item.type === "photo" ? (
               <img
-                src={`/api/media/file/${item.filePath}`}
+                src={item.signedUrl || `/api/media/file/${item.filePath}`}
                 alt={item.caption || ""}
                 className="object-cover w-full h-full"
+                onError={async (e) => {
+                  const target = e.target as HTMLImageElement;
+                  try {
+                    const response = await fetch(`/api/media/file/${item.filePath}`);
+                    const data = await response.json();
+                    target.src = data.url;
+                  } catch (error) {
+                    console.error("Error loading image:", error);
+                  }
+                }}
               />
             ) : (
               <video
-                src={`/api/media/file/${item.filePath}`}
+                src={item.signedUrl || `/api/media/file/${item.filePath}`}
                 className="object-cover w-full h-full"
                 controls
+                onError={async (e) => {
+                  const target = e.target as HTMLVideoElement;
+                  try {
+                    const response = await fetch(`/api/media/file/${item.filePath}`);
+                    const data = await response.json();
+                    target.src = data.url;
+                  } catch (error) {
+                    console.error("Error loading video:", error);
+                  }
+                }}
               />
             )}
           </div>

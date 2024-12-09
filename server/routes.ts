@@ -74,11 +74,13 @@ export function registerRoutes(app: Express) {
   });
 
   // Media file serving
-  app.get("/api/media/file/:path", (req, res) => {
-    const filePath = path.join(process.cwd(), "media_storage", req.params.path);
-    if (fs.existsSync(filePath)) {
-      res.sendFile(filePath);
-    } else {
+  app.get("/api/media/file/:objectId", async (req, res) => {
+    try {
+      const { getMediaUrl } = await import("./media-manager");
+      const signedUrl = await getMediaUrl(req.params.objectId);
+      res.json({ url: signedUrl });
+    } catch (error) {
+      console.error("Error getting media URL:", error);
       res.status(404).json({ error: "File not found" });
     }
   });
