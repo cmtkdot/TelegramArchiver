@@ -161,12 +161,13 @@ async def main() -> None:
 
         # Log successful initialization
         logger.info("Bot handlers configured successfully")
+        
+        # Get bot information and log startup
+        me = await application.bot.get_me()
+        startup_message = f'Telegram monitor started as @{me.username}'
+        
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # Get bot information
-                me = await application.bot.get_me()
-                startup_message = f'Telegram monitor started as @{me.username}'
-                
                 cur.execute("""
                     INSERT INTO system_logs (level, message, metadata)
                     VALUES (%s, %s, %s)
@@ -177,6 +178,7 @@ async def main() -> None:
                 })))
                 conn.commit()
 
+        # Start the application
         logger.info("Starting bot polling...")
         await application.initialize()
         await application.start()
@@ -187,20 +189,14 @@ async def main() -> None:
         
         logger.info("Bot is running, waiting for channel posts...")
         
-        # Use asyncio.Event to keep the application running
-        stop_event = asyncio.Event()
-        
-        try:
-            # Keep the application running until interrupted
-            await stop_event.wait()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            # Proper cleanup on shutdown
-            if application.updater.running:
-                await application.updater.stop()
-            if application.running:
-                await application.stop()
+        # Keep the bot running until interrupted
+        while True:
+            try:
+                # Sleep instead of using an event to allow for cleaner shutdown
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                logger.info("Received shutdown signal")
+                break
             
     except Exception as e:
         error_msg = str(e)
@@ -217,17 +213,19 @@ async def main() -> None:
                     'error_details': str(e)
                 })))
                 conn.commit()
+        raise
         
-        # Ensure proper cleanup
-        if application and hasattr(application, 'updater'):
+    finally:
+        # Cleanup in finally block to ensure it runs
+        if application:
             try:
-                if application.updater.running:
+                if hasattr(application, 'updater') and application.updater.running:
                     await application.updater.stop()
                 if application.running:
                     await application.stop()
+                logger.info("Bot shutdown completed")
             except Exception as cleanup_error:
                 logger.error(f"Error during cleanup: {cleanup_error}")
-        raise  # Re-raise the exception for proper handling
 
 if __name__ == '__main__':
     try:
