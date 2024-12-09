@@ -1,0 +1,12 @@
+[project]
+name = "repl-nix-telegramarchiver"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.11"
+dependencies = [
+    "asyncpg>=0.30.0",
+    "datasetrising>=1.0.4",
+    "psycopg2-binary==2.9.9",
+    "python-telegram-bot==21.9",
+    "telegram>=0.0.1",
+]

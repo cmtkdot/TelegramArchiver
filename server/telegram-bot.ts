@@ -51,19 +51,46 @@ export class TelegramArchiveBot {
   }
 
   private async startChannelMonitoring() {
-    const monitoredChannels = await db.select().from(channels);
-    
-    for (const channel of monitoredChannels) {
-      try {
-        const chat = await this.bot.getChat(channel.channelId);
-        await db.update(channels)
-          .set({ name: chat.title || channel.channelId })
-          .where(eq(channels.channelId, channel.channelId));
+    try {
+      // Get all dialogs (chats) that the bot has access to
+      const updates = await this.bot.getUpdates();
+      const uniqueChats = new Set();
+      
+      updates.forEach(update => {
+        if (update.channel_post?.chat) {
+          uniqueChats.add(update.channel_post.chat);
+        }
+      });
+
+      // Process each channel
+      for (const chat of uniqueChats) {
+        try {
+          const channelId = chat.id.toString();
+          const chatInfo = await this.bot.getChat(channelId);
           
-        this.monitorChannel(channel.channelId);
-      } catch (error) {
-        await this.logSystem("error", `Failed to start monitoring channel: ${channel.channelId}`);
+          // Insert or update channel info
+          await db.insert(channels)
+            .values({
+              channelId,
+              name: chatInfo.title || channelId,
+              description: chatInfo.description || null,
+            })
+            .onConflictDoUpdate({
+              target: channels.channelId,
+              set: {
+                name: chatInfo.title || channelId,
+                description: chatInfo.description || null,
+              }
+            });
+          
+          this.monitorChannel(channelId);
+          await this.logSystem("info", `Started monitoring channel: ${chatInfo.title || channelId}`);
+        } catch (error) {
+          await this.logSystem("error", `Failed to process channel: ${error.message}`);
+        }
       }
+    } catch (error) {
+      await this.logSystem("error", `Failed to fetch channels: ${error.message}`);
     }
   }
 
