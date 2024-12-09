@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { fetchChannels } from "../lib/api";
+import { formatDistanceToNow } from "date-fns";
 
 export default function ChannelList() {
   const { data: channels, isLoading } = useQuery({
@@ -16,16 +18,28 @@ export default function ChannelList() {
       {channels?.map((channel) => (
         <Card key={channel.id} className="p-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold">{channel.name}</h3>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold">{channel.name}</h3>
+                <Badge variant={channel.isActive ? "success" : "secondary"}>
+                  {channel.isActive ? "Active" : "Inactive"}
+                </Badge>
+              </div>
               <p className="text-sm text-zinc-500">{channel.channelId}</p>
+              <div className="flex gap-4 text-sm text-zinc-400">
+                <span>Media: {channel.mediaCount || 0}</span>
+                {channel.lastMediaAt && (
+                  <span>
+                    Last update: {formatDistanceToNow(new Date(channel.lastMediaAt), { addSuffix: true })}
+                  </span>
+                )}
+                {channel.joinedAt && (
+                  <span>
+                    Joined: {formatDistanceToNow(new Date(channel.joinedAt), { addSuffix: true })}
+                  </span>
+                )}
+              </div>
             </div>
-            <Button
-              variant="outline"
-              className={channel.isActive ? "bg-green-500/10" : "bg-red-500/10"}
-            >
-              {channel.isActive ? "Active" : "Inactive"}
-            </Button>
           </div>
         </Card>
       ))}

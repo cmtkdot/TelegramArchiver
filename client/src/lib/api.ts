@@ -2,7 +2,12 @@ import { Channel, Media, SystemLog } from "@db/schema";
 
 const API_BASE = "/api";
 
-export async function fetchChannels(): Promise<Channel[]> {
+export interface ChannelWithStats extends Channel {
+  mediaCount: number;
+  lastMediaAt: string | null;
+}
+
+export async function fetchChannels(): Promise<ChannelWithStats[]> {
   const res = await fetch(`${API_BASE}/channels`);
   if (!res.ok) throw new Error("Failed to fetch channels");
   return res.json();

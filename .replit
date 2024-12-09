@@ -58,3 +58,6 @@ task = "packager.installForAll"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python telegram_monitor.py"
+
+[objectStorage]
+defaultBucketID = "replit-objstore-f68c34e2-ee87-4296-b5b4-ccd2b8ee9862"

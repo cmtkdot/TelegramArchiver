@@ -9,9 +9,24 @@ export function registerRoutes(app: Express) {
   // Channel management
   app.get("/api/channels", async (req, res) => {
     try {
-      const result = await db.select().from(channels);
+      const result = await db.select({
+        id: channels.id,
+        channelId: channels.channelId,
+        name: channels.name,
+        description: channels.description,
+        joinedAt: channels.joinedAt,
+        isActive: channels.isActive,
+        mediaCount: sql`COUNT(${media.id})::integer`,
+        lastMediaAt: sql`MAX(${media.createdAt})`
+      })
+      .from(channels)
+      .leftJoin(media, eq(channels.channelId, media.channelId))
+      .groupBy(channels.id)
+      .orderBy(desc(channels.joinedAt));
+      
       res.json(result);
     } catch (err) {
+      console.error('Error fetching channels:', err);
       res.status(500).json({ error: "Failed to fetch channels" });
     }
   });
