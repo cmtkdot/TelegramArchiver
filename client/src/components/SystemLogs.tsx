@@ -22,7 +22,7 @@ export default function SystemLogs() {
             }`}
           >
             <span className="text-zinc-500">
-              {new Date(log.timestamp).toLocaleTimeString()}
+              {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : 'N/A'}
             </span>
             <span className="uppercase text-xs">{log.level}</span>
             <span>{log.message}</span>

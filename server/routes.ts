@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { db } from "../db";
 import { channels, media, systemLogs } from "@db/schema";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import path from "path";
 import fs from "fs";
 

@@ -1,4 +1,4 @@
-import { Bot } from "telegram";
+import TelegramBot from "node-telegram-bot-api";
 import { db } from "../db";
 import { channels, media, systemLogs } from "@db/schema";
 import { eq } from "drizzle-orm";
@@ -7,11 +7,11 @@ import path from "path";
 import fs from "fs";
 
 export class TelegramArchiveBot {
-  private bot: Bot;
+  private bot: TelegramBot;
   private mediaStoragePath: string;
 
   constructor(token: string) {
-    this.bot = new Bot(token);
+    this.bot = new TelegramBot(token, { polling: true });
     this.mediaStoragePath = path.join(process.cwd(), "media_storage");
     
     // Ensure media storage directory exists

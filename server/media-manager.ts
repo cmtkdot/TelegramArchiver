@@ -1,10 +1,10 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { File } from "telegram/types";
+import TelegramBot from "node-telegram-bot-api";
 
 export async function downloadMedia(
-  file: File,
+  file: TelegramBot.File,
   storagePath: string
 ): Promise<string> {
   const fileExt = path.extname(file.file_path || "") || ".bin";
