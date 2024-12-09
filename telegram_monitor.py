@@ -2,6 +2,10 @@ import os
 import asyncio
 import logging
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 from telegram.ext import (
     Application,
     MessageHandler,
