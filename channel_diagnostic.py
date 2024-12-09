@@ -98,14 +98,38 @@ async def get_bot_channels():
             logger.warning("2. Make the bot an administrator")
             logger.warning("3. Send some messages in the channels")
             
-            # Log warning to database
-            with get_db_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO system_logs (level, message)
-                        VALUES (%s, %s)
-                    """, ('warning', 'No channels or groups found for the bot'))
-                    conn.commit()
+            # Get bot invite link and log detailed instructions
+        bot_info = await bot.get_me()
+        bot_invite_link = f"https://t.me/{bot_info.username}"
+        
+        instruction_message = f"""
+No channels or groups found. To set up the bot:
+
+1. Add @{bot_info.username} to your channels/groups using this link: {bot_invite_link}
+2. Make the bot an administrator with these permissions:
+   - Read Messages/View Messages
+   - Delete Messages
+   - Post Messages
+   - Edit Messages
+   - Manage Voice Chats
+3. Send some test messages in the channels
+
+Bot ID: {bot_info.id}
+Bot Username: @{bot_info.username}
+"""
+        
+        # Log detailed instructions to database
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO system_logs (level, message, metadata)
+                    VALUES (%s, %s, %s)
+                """, ('warning', instruction_message, Json({
+                    'bot_id': bot_info.id,
+                    'bot_username': bot_info.username,
+                    'bot_invite_link': bot_invite_link
+                })))
+                conn.commit()
     
     except Exception as e:
         logger.error(f"Error: {e}")
