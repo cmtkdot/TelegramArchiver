@@ -54,7 +54,7 @@ export class TelegramArchiveBot {
     try {
       // Get all dialogs (chats) that the bot has access to
       const updates = await this.bot.getUpdates();
-      const uniqueChats = new Set();
+      const uniqueChats = new Set<TelegramBot.Chat>();
       
       updates.forEach(update => {
         if (update.channel_post?.chat) {
@@ -63,7 +63,7 @@ export class TelegramArchiveBot {
       });
 
       // Process each channel
-      for (const chat of uniqueChats) {
+      for (const chat of Array.from(uniqueChats)) {
         try {
           const channelId = chat.id.toString();
           const chatInfo = await this.bot.getChat(channelId);
@@ -86,11 +86,13 @@ export class TelegramArchiveBot {
           this.monitorChannel(channelId);
           await this.logSystem("info", `Started monitoring channel: ${chatInfo.title || channelId}`);
         } catch (error) {
-          await this.logSystem("error", `Failed to process channel: ${error.message}`);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          await this.logSystem("error", `Failed to process channel: ${errorMessage}`);
         }
       }
     } catch (error) {
-      await this.logSystem("error", `Failed to fetch channels: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await this.logSystem("error", `Failed to fetch channels: ${errorMessage}`);
     }
   }
 
@@ -124,9 +126,10 @@ export class TelegramArchiveBot {
           );
         }
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         await this.logSystem(
           "error",
-          `Failed to process media from channel ${channelId}`
+          `Failed to process media from channel ${channelId}: ${errorMessage}`
         );
       }
     });

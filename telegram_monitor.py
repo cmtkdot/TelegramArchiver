@@ -26,13 +26,17 @@ def get_db_connection():
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming media messages."""
     try:
-        # Get message info
-        message = update.channel_post or update.message
+        # Get message info - specifically look for channel posts
+        message = update.channel_post
         if not message:
+            # Not a channel post, ignore
             return
 
         channel_id = str(message.chat.id)
         channel_name = message.chat.title or channel_id
+        
+        # Log processing start
+        logger.info(f"Processing message from channel: {channel_name} ({channel_id})")
         
         # Connect to database
         with get_db_connection() as conn:
@@ -42,21 +46,30 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     INSERT INTO channels (channel_id, name, description)
                     VALUES (%s, %s, %s)
                     ON CONFLICT (channel_id) 
-                    DO UPDATE SET name = EXCLUDED.name
+                    DO UPDATE SET 
+                        name = EXCLUDED.name,
+                        description = EXCLUDED.description
                     RETURNING id
                 """, (channel_id, channel_name, message.chat.description))
                 conn.commit()
                 
                 # Handle media content
                 media_file = None
+                media_type = None
+                metadata = {}
+
+                # Check for photo
                 if message.photo:
+                    # Get the highest resolution photo
                     media_file = message.photo[-1]
                     media_type = 'photo'
                     metadata = {
                         'width': media_file.width,
                         'height': media_file.height,
-                        'file_size': media_file.file_size
+                        'file_size': media_file.file_size,
+                        'photo_sizes': len(message.photo)
                     }
+                # Check for video
                 elif message.video:
                     media_file = message.video
                     media_type = 'video'
@@ -64,14 +77,17 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                         'width': media_file.width,
                         'height': media_file.height,
                         'duration': media_file.duration,
-                        'file_size': media_file.file_size
+                        'file_size': media_file.file_size,
+                        'mime_type': media_file.mime_type
                     }
-                else:
-                    return
 
-                if media_file:
+                if media_file and media_type:
+                    logger.info(f"Found {media_type} in message {message.message_id}")
+                    
+                    # Get file information from Telegram
                     file = await context.bot.get_file(media_file.file_id)
-                    file_path = file.file_path
+                    if not file.file_path:
+                        raise ValueError("No file path received from Telegram")
                     
                     # Save media info to database
                     cur.execute("""
@@ -83,7 +99,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                         channel_id,
                         media_type,
                         media_file.file_id,
-                        file_path,
+                        file.file_path,
                         message.caption,
                         Json(metadata)
                     ))
@@ -99,10 +115,12 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                         Json(metadata)
                     ))
                     conn.commit()
+                    logger.info(f"Successfully processed {media_type} from message {message.message_id}")
 
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Error processing media: {error_msg}")
+        # Log the error to database
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -113,43 +131,106 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def main() -> None:
     """Start the bot."""
+    application = None
     try:
         # Get bot token
         token = os.environ.get('TELEGRAM_BOT_TOKEN')
         if not token:
-            raise ValueError("No token provided")
+            raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set")
+            
+        # Log startup attempt
+        logger.info("Initializing Telegram bot...")
+        
+        # Create the Application with specific configuration
+        application = (
+            Application.builder()
+            .token(token)
+            .read_timeout(30)  # Increased timeout for large media files
+            .write_timeout(30)
+            .connect_timeout(30)
+            .pool_timeout(30)
+            .build()
+        )
 
-        # Create the Application
-        application = Application.builder().token(token).build()
-
-        # Add message handler for media
+        # Add message handler specifically for channel media
         application.add_handler(MessageHandler(
-            filters.PHOTO | filters.VIDEO | filters.CHANNEL,
-            handle_media
+            filters.ChatType.CHANNEL & (filters.PHOTO | filters.VIDEO),
+            handle_media,
+            block=False  # Non-blocking to handle multiple messages
         ))
 
-        # Log startup
+        # Log successful initialization
+        logger.info("Bot handlers configured successfully")
         with get_db_connection() as conn:
             with conn.cursor() as cur:
+                # Get bot information
+                me = await application.bot.get_me()
+                startup_message = f'Telegram monitor started as @{me.username}'
+                
                 cur.execute("""
-                    INSERT INTO system_logs (level, message)
-                    VALUES (%s, %s)
-                """, ('info', 'Telegram monitor started'))
+                    INSERT INTO system_logs (level, message, metadata)
+                    VALUES (%s, %s, %s)
+                """, ('info', startup_message, Json({
+                    'bot_id': me.id,
+                    'bot_name': me.first_name,
+                    'bot_username': me.username
+                })))
                 conn.commit()
 
-        logger.info("Starting bot...")
-        await application.run_polling(allowed_updates=['message', 'channel_post'])
-
+        logger.info("Starting bot polling...")
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling(
+            allowed_updates=['channel_post'],
+            drop_pending_updates=True
+        )
+        
+        logger.info("Bot is running, waiting for channel posts...")
+        
+        # Use asyncio.Event to keep the application running
+        stop_event = asyncio.Event()
+        
+        try:
+            # Keep the application running until interrupted
+            await stop_event.wait()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            # Proper cleanup on shutdown
+            if application.updater.running:
+                await application.updater.stop()
+            if application.running:
+                await application.stop()
+            
     except Exception as e:
-        logger.error(f"Fatal error: {str(e)}")
+        error_msg = str(e)
+        logger.error(f"Fatal error: {error_msg}")
+        
+        # Log error to database
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO system_logs (level, message)
-                    VALUES (%s, %s)
-                """, ('error', f'Fatal error: {str(e)}'))
+                    INSERT INTO system_logs (level, message, metadata)
+                    VALUES (%s, %s, %s)
+                """, ('error', f'Fatal error: {error_msg}', Json({
+                    'error_type': type(e).__name__,
+                    'error_details': str(e)
+                })))
                 conn.commit()
-        raise
+        
+        # Ensure proper cleanup
+        if application and hasattr(application, 'updater'):
+            try:
+                if application.updater.running:
+                    await application.updater.stop()
+                if application.running:
+                    await application.stop()
+            except Exception as cleanup_error:
+                logger.error(f"Error during cleanup: {cleanup_error}")
+        raise  # Re-raise the exception for proper handling
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass  # Handle graceful shutdown
