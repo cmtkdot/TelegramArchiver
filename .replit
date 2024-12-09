@@ -30,6 +30,10 @@ args = "Full Stack App"
 task = "workflow.run"
 args = "Telegram Monitor"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Channel Diagnostic"
+
 [[workflows.workflow]]
 name = "Full Stack App"
 author = "agent"
@@ -58,6 +62,20 @@ task = "packager.installForAll"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python telegram_monitor.py"
+
+[[workflows.workflow]]
+name = "Channel Diagnostic"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python channel_diagnostic.py"
 
 [objectStorage]
 defaultBucketID = "replit-objstore-f68c34e2-ee87-4296-b5b4-ccd2b8ee9862"
