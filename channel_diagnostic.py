@@ -31,10 +31,48 @@ async def get_bot_channels():
         me = await bot.get_me()
         logger.info(f"Bot Information: @{me.username} (ID: {me.id})")
         
-        # Initialize updates to get chat information
-        updates = await bot.get_updates()
+        # Try to get specific channel first
+        specific_channel_id = -1001562652591
+        try:
+            chat_info = await bot.get_chat(specific_channel_id)
+            logger.info("\nFound specified channel:")
+            logger.info(f"Title: {chat_info.title}")
+            logger.info(f"Type: {chat_info.type}")
+            logger.info(f"ID: {chat_info.id}")
+            logger.info(f"Description: {chat_info.description or 'No description'}")
+            
+            # Store in database
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO channels (channel_id, name, description)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (channel_id) 
+                        DO UPDATE SET 
+                            name = EXCLUDED.name,
+                            description = EXCLUDED.description
+                    """, (
+                        str(chat_info.id),
+                        chat_info.title,
+                        chat_info.description
+                    ))
+                    conn.commit()
+        except TelegramError as e:
+            logger.error(f"Error accessing channel {specific_channel_id}: {e}")
+            # Log error details
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO system_logs (level, message, metadata)
+                        VALUES (%s, %s, %s)
+                    """, ('error', f'Error accessing channel {specific_channel_id}', Json({
+                        'error': str(e),
+                        'channel_id': specific_channel_id
+                    })))
+                    conn.commit()
         
-        # Store unique chats
+        # Then get all other channels
+        updates = await bot.get_updates()
         unique_chats = {}
         
         # Get chat information from updates
