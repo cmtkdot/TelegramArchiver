@@ -1,0 +1,84 @@
+-- Drop existing tables
+DROP TABLE IF EXISTS media CASCADE;
+DROP TABLE IF EXISTS channels CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS system_logs CASCADE;
+
+-- Create users table
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    telegram_id BIGINT UNIQUE NOT NULL,
+    username VARCHAR(255),
+    is_admin BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create channels table
+CREATE TABLE channels (
+    id SERIAL PRIMARY KEY,
+    link VARCHAR(255) UNIQUE NOT NULL,
+    title VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    added_by BIGINT REFERENCES users(telegram_id),
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_checked TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create media table
+CREATE TABLE media (
+    id SERIAL PRIMARY KEY,
+    channel_id INTEGER REFERENCES channels(id),
+    file_id VARCHAR(255) UNIQUE NOT NULL,
+    message_id INTEGER,
+    media_type VARCHAR(50),
+    filename VARCHAR(255),
+    file_size INTEGER,
+    mime_type VARCHAR(100),
+    local_path VARCHAR(512),
+    caption TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    downloaded_at TIMESTAMP
+);
+
+-- Create system_logs table
+CREATE TABLE system_logs (
+    id SERIAL PRIMARY KEY,
+    level VARCHAR(20) NOT NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    metadata JSONB
+);
+
+-- Create indexes
+CREATE INDEX idx_media_channel ON media(channel_id);
+CREATE INDEX idx_media_type ON media(media_type);
+CREATE INDEX idx_media_created ON media(created_at);
+CREATE INDEX idx_channels_added_by ON channels(added_by);
+CREATE INDEX idx_channels_active ON channels(is_active);
+CREATE INDEX idx_logs_level ON system_logs(level);
+CREATE INDEX idx_logs_created ON system_logs(created_at);
+
+-- Create cleanup function
+CREATE OR REPLACE FUNCTION cleanup_old_logs() RETURNS void AS $$
+BEGIN
+    DELETE FROM system_logs 
+    WHERE created_at < NOW() - INTERVAL '30 days';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create cleanup trigger
+CREATE OR REPLACE FUNCTION trigger_cleanup_old_logs()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (SELECT COUNT(*) FROM system_logs) > 10000 THEN
+        PERFORM cleanup_old_logs();
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER cleanup_logs_trigger
+AFTER INSERT ON system_logs
+FOR EACH STATEMENT
+EXECUTE FUNCTION trigger_cleanup_old_logs(); 
