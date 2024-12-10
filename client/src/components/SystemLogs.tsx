@@ -8,6 +8,7 @@ export default function SystemLogs() {
     queryKey: ["systemLogs"],
     queryFn: () => fetchSystemLogs(),
     refetchInterval: 5000,
+    refetchOnWindowFocus: false,
   });
 
   if (isLoading) return <div>Loading logs...</div>;
@@ -18,7 +19,7 @@ export default function SystemLogs() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => void refetch()}
+          onClick={() => refetch()}
           disabled={isLoading}
         >
           {isLoading ? "Refreshing..." : "Refresh Logs"}
