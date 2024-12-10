@@ -20,6 +20,9 @@ export const channels = pgTable("channels", {
   addedBy: bigint("added_by", { mode: "number" }).references(() => users.telegramId),
   addedAt: timestamp("added_at").defaultNow(),
   lastChecked: timestamp("last_checked").defaultNow(),
+  totalSize: bigint("total_size", { mode: "number" }).default(0),
+  mediaCount: integer("media_count").default(0),
+  status: text("status").default("active"),
 });
 
 export const media = pgTable("media", {
@@ -27,7 +30,7 @@ export const media = pgTable("media", {
   channelId: integer("channel_id").references(() => channels.id),
   fileId: text("file_id").unique().notNull(),
   messageId: integer("message_id"),
-  mediaType: text("media_type"),
+  mediaType: text("media_type").notNull(),
   filename: text("filename"),
   fileSize: integer("file_size"),
   mimeType: text("mime_type"),
@@ -35,6 +38,9 @@ export const media = pgTable("media", {
   caption: text("caption"),
   createdAt: timestamp("created_at").defaultNow(),
   downloadedAt: timestamp("downloaded_at"),
+  downloadUrl: text("download_url"),
+  status: text("status").default("pending"),
+  metadata: jsonb("metadata"),
 });
 
 export const systemLogs = pgTable("system_logs", {
@@ -58,10 +64,24 @@ export type Channel = z.infer<typeof selectChannelSchema>;
 export type InsertChannel = z.infer<typeof insertChannelSchema>;
 
 // Schema for media operations
-export const insertMediaSchema = createInsertSchema(media);
+export const insertMediaSchema = createInsertSchema(media, {
+  mediaType: z.string().min(1, "Media type is required"),
+  fileId: z.string().min(1, "File ID is required"),
+  fileSize: z.number().optional(),
+  mimeType: z.string().optional(),
+  caption: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
 export const selectMediaSchema = createSelectSchema(media);
+
+// Custom Media types with frontend-specific fields
 export type Media = z.infer<typeof selectMediaSchema>;
 export type InsertMedia = z.infer<typeof insertMediaSchema>;
+export type MediaResponse = Omit<Media, 'fileSize'> & {
+  fileSize: string;
+  downloadUrl: string;
+};
 
 // Schema for system logs operations
 export const insertLogSchema = createInsertSchema(systemLogs);

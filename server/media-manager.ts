@@ -24,7 +24,7 @@ ensureStorageExists().catch(error => {
 });
 
 export async function downloadMedia(
-  file: TelegramBot.File,
+  file: { file_id: string; file_path?: string; file_unique_id?: string },
   _storagePath: string
 ): Promise<string> {
   try {

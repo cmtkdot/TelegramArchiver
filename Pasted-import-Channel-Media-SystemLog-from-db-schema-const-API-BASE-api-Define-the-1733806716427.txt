@@ -1,0 +1,169 @@
+import { Channel, Media, SystemLog } from "@db/schema";
+
+const API_BASE = "/api";
+
+// Define the base Channel type from schema
+interface BaseChannel {
+  id: number;
+  link: string;
+  title: string | null;
+  isActive: boolean | null;
+  addedBy: number | null;
+  addedAt: Date | null;
+  lastChecked: Date | null;
+  totalSize: number | null;
+  mediaCount: number | null;
+  status: string | null;
+}
+
+// Extend the base channel type with frontend-specific fields
+export interface ChannelWithStats extends Omit<BaseChannel, 'isActive' | 'addedAt' | 'lastChecked' | 'totalSize' | 'mediaCount'> {
+  mediaCount: number;
+  totalSize: string;
+  isActive: boolean;
+  addedAt: Date;
+  lastChecked: Date;
+}
+
+// Define the base Media type from schema
+interface BaseMedia {
+  id: number;
+  createdAt: Date | null;
+  channelId: number | null;
+  fileId: string;
+  messageId: number | null;
+  mediaType: string | null;
+  filename: string | null;
+  fileSize: number | null;
+  mimeType: string | null;
+  localPath: string | null;
+  caption: string | null;
+  downloadedAt: Date | null;
+}
+
+// Extend the base media type with frontend-specific fields
+export interface MediaItem extends Omit<BaseMedia, 'fileSize' | 'mediaType' | 'createdAt'> {
+  mediaType: string;
+  fileSize: string;
+  createdAt: Date;
+  downloadUrl?: string;
+}
+
+export interface WebhookConfig {
+  url: string;
+  events: string[];
+  headers?: Record<string, string>;
+}
+
+export interface SystemStats {
+  channels: number;
+  mediaItems: number;
+  totalSize: string;
+  status: string;
+}
+
+// Fetch all channels with their statistics
+export async function fetchChannels(): Promise<ChannelWithStats[]> {
+  const res = await fetch(`${API_BASE}/channels`);
+  if (!res.ok) throw new Error("Failed to fetch channels");
+  const data = await res.json();
+  return data.map((channel: any) => ({
+    id: channel.id,
+    link: channel.link,
+    title: channel.title,
+    addedBy: channel.added_by,
+    status: channel.status,
+    addedAt: new Date(channel.added_at),
+    lastChecked: new Date(channel.last_checked),
+    mediaCount: channel.media_count,
+    totalSize: channel.total_size,
+    isActive: channel.is_active
+  }));
+}
+
+// Fetch media for a specific channel with pagination
+export async function fetchChannelMedia(
+  channelId: number,
+  page = 1,
+  limit = 20
+): Promise<{ media: MediaItem[]; total: number; page: number; limit: number }> {
+  const res = await fetch(
+    `${API_BASE}/channels/${channelId}/media?page=${page}&limit=${limit}`
+  );
+  if (!res.ok) throw new Error("Failed to fetch channel media");
+  const data = await res.json();
+  return {
+    ...data,
+    media: data.media.map((item: any) => ({
+      id: item.id,
+      channelId: item.channel_id,
+      messageId: item.message_id,
+      fileId: item.file_id,
+      filename: item.filename,
+      mimeType: item.mime_type,
+      localPath: item.local_path,
+      downloadedAt: item.downloaded_at ? new Date(item.downloaded_at) : null,
+      caption: item.caption,
+      createdAt: new Date(item.created_at),
+      mediaType: item.media_type,
+      fileSize: item.file_size,
+      downloadUrl: item.id ? `/api/media/${item.id}/download` : undefined
+    }))
+  };
+}
+
+// Download media file
+export async function downloadMedia(mediaId: number): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/media/${mediaId}/download`);
+  if (!res.ok) throw new Error("Failed to download media");
+  return res.blob();
+}
+
+// Configure webhook
+export async function configureWebhook(config: WebhookConfig): Promise<{ id: number }> {
+  const res = await fetch(`${API_BASE}/webhooks/configure`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) throw new Error("Failed to configure webhook");
+  return res.json();
+}
+
+// Get system statistics
+export async function fetchSystemStats(): Promise<SystemStats> {
+  const res = await fetch(`${API_BASE}/stats`);
+  if (!res.ok) throw new Error("Failed to fetch system stats");
+  return res.json();
+}
+
+// Helper function to download and save file
+export async function downloadAndSaveMedia(mediaId: number, filename: string): Promise<void> {
+  try {
+    const blob = await downloadMedia(mediaId);
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  } catch (error) {
+    console.error('Error downloading media:', error);
+    throw error;
+  }
+}
+
+// Fetch system logs with limit
+export async function fetchSystemLogs(
+  limit = 100
+): Promise<SystemLog[]> {
+  const res = await fetch(`${API_BASE}/logs?limit=${limit}`);
+  if (!res.ok) throw new Error("Failed to fetch logs");
+  const data = await res.json();
+  return data.map((log: any) => ({
+    ...log,
+    createdAt: new Date(log.created_at)
+  }));
+}
