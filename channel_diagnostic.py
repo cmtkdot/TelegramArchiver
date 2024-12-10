@@ -25,11 +25,21 @@ def get_db_connection():
 async def get_bot_channels():
     """Get all channels and groups the bot is member of."""
     try:
-        bot = Bot(token=os.environ['TELEGRAM_BOT_TOKEN'])
+        logger.info("Initializing bot connection...")
+        token = os.environ['TELEGRAM_BOT_TOKEN']
+        if not token:
+            raise ValueError("No bot token provided")
+            
+        bot = Bot(token=token)
         
-        # Get bot information
+        # Get bot information and verify connection
         me = await bot.get_me()
-        logger.info(f"Bot Information: @{me.username} (ID: {me.id})")
+        logger.info("Successfully connected to Telegram API")
+        logger.info(f"Bot Information:")
+        logger.info(f"- Username: @{me.username}")
+        logger.info(f"- Bot ID: {me.id}")
+        logger.info(f"- Bot Name: {me.first_name}")
+        logger.info(f"- Is Bot: {me.is_bot}")
         
         # Try to get specific channel first
         specific_channel_id = -1001562652591
