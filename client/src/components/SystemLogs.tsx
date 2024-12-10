@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { fetchSystemLogs } from "../lib/api";
+import { formatDistanceToNow } from "date-fns";
 
 export default function SystemLogs() {
   const { data: logs, isLoading, refetch } = useQuery({
@@ -43,7 +44,7 @@ export default function SystemLogs() {
               }`}
             >
               <span className="text-zinc-500">
-                {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : 'N/A'}
+                {log.createdAt ? new Date(log.createdAt).toLocaleTimeString() : 'N/A'}
               </span>
               <span className="uppercase text-xs">{log.level}</span>
               <span>{log.message}</span>

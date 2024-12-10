@@ -39,22 +39,22 @@ export default function ChannelList() {
             <div className="flex items-center justify-between">
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-semibold">{channel.name}</h3>
+                  <h3 className="text-lg font-semibold">{channel.title}</h3>
                   <Badge variant={channel.isActive ? "default" : "secondary"}>
                     {channel.isActive ? "Active" : "Inactive"}
                   </Badge>
                 </div>
-                <p className="text-sm text-zinc-500">{channel.channelId}</p>
+                <p className="text-sm text-zinc-500">{channel.link}</p>
                 <div className="flex gap-4 text-sm text-zinc-400">
                   <span>Media: {channel.mediaCount || 0}</span>
-                  {channel.lastMediaAt && (
+                  {channel.lastChecked && (
                     <span>
-                      Last update: {formatDistanceToNow(new Date(channel.lastMediaAt), { addSuffix: true })}
+                      Last check: {formatDistanceToNow(new Date(channel.lastChecked), { addSuffix: true })}
                     </span>
                   )}
-                  {channel.joinedAt && (
+                  {channel.addedAt && (
                     <span>
-                      Joined: {formatDistanceToNow(new Date(channel.joinedAt), { addSuffix: true })}
+                      Added: {formatDistanceToNow(new Date(channel.addedAt), { addSuffix: true })}
                     </span>
                   )}
                 </div>
