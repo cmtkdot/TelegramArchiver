@@ -9,9 +9,8 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from telegram import Update, Bot
-import psycopg2
-from psycopg2.extras import Json
+from telegram import Update
+from database_manager import DatabaseManager
 
 # Load environment variables
 load_dotenv()
@@ -23,28 +22,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Database connection
-def get_db_connection():
-    return psycopg2.connect(os.environ['DATABASE_URL'])
-
-def log_to_db(level: str, message: str, metadata: dict = None):
-    """Helper function to log messages to the database"""
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO system_logs (level, message, metadata)
-                    VALUES (%s, %s, %s)
-                """, (level, message, Json(metadata) if metadata else None))
-                conn.commit()
-    except Exception as e:
-        logger.error(f"Failed to log to database: {e}")
+# Initialize database manager
+db = DatabaseManager()
 
 async def verify_bot_connection(token: str) -> bool:
     """Verify bot connection and permissions"""
     try:
-        bot = Bot(token=token)
-        me = await bot.get_me()
+        application = Application.builder().token(token).build()
+        me = await application.bot.get_me()
+        await application.shutdown()
         
         connection_info = {
             'bot_id': me.id,
@@ -62,13 +48,13 @@ async def verify_bot_connection(token: str) -> bool:
         )
         
         logger.info(success_message)
-        log_to_db('info', success_message, connection_info)
+        db.log_system_event('info', success_message, connection_info)
         return True
         
     except Exception as e:
         error_message = f"Failed to connect to Telegram API: {str(e)}"
         logger.error(error_message)
-        log_to_db('error', error_message, {'error': str(e)})
+        db.log_system_event('error', error_message, {'error': str(e)})
         return False
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -84,86 +70,83 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         
         logger.info(f"Processing message from channel: {channel_name} ({channel_id})")
         
-        # Connect to database
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                # Update or insert channel info
-                cur.execute("""
-                    INSERT INTO channels (channel_id, name, description)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (channel_id) 
-                    DO UPDATE SET 
-                        name = EXCLUDED.name,
-                        description = EXCLUDED.description
-                    RETURNING id
-                """, (channel_id, channel_name, message.chat.description))
-                conn.commit()
+        try:
+            # Add or update channel
+            db_channel_id = db.add_or_update_channel(
+                link=channel_id,
+                title=channel_name
+            )
+            
+            # Handle media content
+            media_file = None
+            media_type = None
+            metadata = {}
+
+            if message.photo:
+                media_file = message.photo[-1]
+                media_type = 'photo'
+                metadata = {
+                    'width': media_file.width,
+                    'height': media_file.height,
+                    'file_size': media_file.file_size,
+                    'photo_sizes': len(message.photo)
+                }
+            elif message.video:
+                media_file = message.video
+                media_type = 'video'
+                metadata = {
+                    'width': media_file.width,
+                    'height': media_file.height,
+                    'duration': media_file.duration,
+                    'file_size': media_file.file_size,
+                    'mime_type': media_file.mime_type
+                }
+
+            if media_file and media_type:
+                logger.info(f"Found {media_type} in message {message.message_id}")
                 
-                # Handle media content
-                media_file = None
-                media_type = None
-                metadata = {}
+                file = await context.bot.get_file(media_file.file_id)
+                if not file.file_path:
+                    raise ValueError("No file path received from Telegram")
+                
+                # Add media to database
+                db.add_media(
+                    channel_id=db_channel_id,
+                    file_id=media_file.file_id,
+                    message_id=message.message_id,
+                    media_type=media_type,
+                    file_size=media_file.file_size,
+                    mime_type=getattr(media_file, 'mime_type', None),
+                    caption=message.caption
+                )
 
-                if message.photo:
-                    media_file = message.photo[-1]
-                    media_type = 'photo'
-                    metadata = {
-                        'width': media_file.width,
-                        'height': media_file.height,
-                        'file_size': media_file.file_size,
-                        'photo_sizes': len(message.photo)
-                    }
-                elif message.video:
-                    media_file = message.video
-                    media_type = 'video'
-                    metadata = {
-                        'width': media_file.width,
-                        'height': media_file.height,
-                        'duration': media_file.duration,
-                        'file_size': media_file.file_size,
-                        'mime_type': media_file.mime_type
-                    }
+                db.log_system_event(
+                    'info',
+                    f'Processed {media_type} from channel {channel_name}',
+                    metadata
+                )
+                logger.info(f"Successfully processed {media_type} from message {message.message_id}")
 
-                if media_file and media_type:
-                    logger.info(f"Found {media_type} in message {message.message_id}")
-                    
-                    file = await context.bot.get_file(media_file.file_id)
-                    if not file.file_path:
-                        raise ValueError("No file path received from Telegram")
-                    
-                    cur.execute("""
-                        INSERT INTO media 
-                        (message_id, channel_id, type, file_id, file_path, caption, metadata)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        message.message_id,
-                        channel_id,
-                        media_type,
-                        media_file.file_id,
-                        file.file_path,
-                        message.caption,
-                        Json(metadata)
-                    ))
-                    conn.commit()
-
-                    log_to_db(
-                        'info',
-                        f'Processed {media_type} from channel {channel_name}',
-                        metadata
-                    )
-                    logger.info(f"Successfully processed {media_type} from message {message.message_id}")
+        except Exception as db_error:
+            error_msg = f"Database error while processing media: {str(db_error)}"
+            logger.error(error_msg)
+            db.log_system_event('error', error_msg)
+            raise
 
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Error processing media: {error_msg}")
-        log_to_db('error', f'Error processing media: {error_msg}')
+        db.log_system_event('error', f'Error processing media: {error_msg}')
 
 async def main() -> None:
     """Start the bot."""
     application = None
     try:
+        # Initialize database
+        db.initialize_database()
+        
         # Get bot token
-        token = os.environ.get('TELEGRAM_BOT_TOKEN')
+        token = os.getenv('TELEGRAM_BOT_TOKEN')
         if not token:
             raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set")
             
@@ -215,10 +198,11 @@ async def main() -> None:
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Fatal error: {error_msg}")
-        log_to_db('error', f'Fatal error: {error_msg}', {
-            'error_type': type(e).__name__,
-            'error_details': str(e)
-        })
+        if 'db' in locals():
+            db.log_system_event('error', f'Fatal error: {error_msg}', {
+                'error_type': type(e).__name__,
+                'error_details': str(e)
+            })
         raise
         
     finally:
