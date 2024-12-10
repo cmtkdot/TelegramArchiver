@@ -9,7 +9,12 @@ export default function SystemLogs() {
     queryFn: () => fetchSystemLogs(),
     refetchInterval: 5000,
     refetchOnWindowFocus: false,
+    refetchOnMount: true,
   });
+
+  const handleRefresh = async () => {
+    await refetch();
+  };
 
   if (isLoading) return <div>Loading logs...</div>;
 
@@ -19,7 +24,7 @@ export default function SystemLogs() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => refetch()}
+          onClick={handleRefresh}
           disabled={isLoading}
         >
           {isLoading ? "Refreshing..." : "Refresh Logs"}

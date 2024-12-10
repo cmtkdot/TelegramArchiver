@@ -10,7 +10,12 @@ export default function ChannelList() {
     queryKey: ["channels"],
     queryFn: fetchChannels,
     refetchOnWindowFocus: false,
+    refetchOnMount: true,
   });
+
+  const handleRefresh = async () => {
+    await refetch();
+  };
 
   if (isLoading) return <div>Loading channels...</div>;
 
@@ -20,7 +25,7 @@ export default function ChannelList() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => refetch()}
+          onClick={handleRefresh}
           disabled={isLoading}
         >
           {isLoading ? "Refreshing..." : "Refresh Channels"}
