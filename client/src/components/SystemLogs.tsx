@@ -12,8 +12,10 @@ export default function SystemLogs() {
     refetchOnMount: true,
   });
 
-  const handleRefresh = async () => {
-    await refetch();
+  const handleRefresh = () => {
+    void refetch().catch((error) => {
+      console.error('Failed to refresh logs:', error);
+    });
   };
 
   if (isLoading) return <div>Loading logs...</div>;

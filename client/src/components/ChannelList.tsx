@@ -13,8 +13,10 @@ export default function ChannelList() {
     refetchOnMount: true,
   });
 
-  const handleRefresh = async () => {
-    await refetch();
+  const handleRefresh = () => {
+    void refetch().catch((error) => {
+      console.error('Failed to refresh channels:', error);
+    });
   };
 
   if (isLoading) return <div>Loading channels...</div>;
