@@ -11,18 +11,18 @@ export function registerRoutes(app: Express) {
     try {
       const result = await db.select({
         id: channels.id,
-        channelId: channels.channelId,
-        name: channels.name,
-        description: channels.description,
-        joinedAt: channels.joinedAt,
+        link: channels.link,
+        title: channels.title,
         isActive: channels.isActive,
+        addedAt: channels.addedAt,
+        lastChecked: channels.lastChecked,
         mediaCount: sql`COUNT(${media.id})::integer`,
         lastMediaAt: sql`MAX(${media.createdAt})`
       })
       .from(channels)
-      .leftJoin(media, eq(channels.channelId, media.channelId))
+      .leftJoin(media, eq(channels.id, media.channelId))
       .groupBy(channels.id)
-      .orderBy(desc(channels.joinedAt));
+      .orderBy(desc(channels.addedAt));
       
       res.json(result);
     } catch (err) {
@@ -33,10 +33,11 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/channels", async (req, res) => {
     try {
-      const { channelId } = req.body;
+      const { link } = req.body;
       const result = await db.insert(channels).values({
-        channelId,
-        name: channelId, // Will be updated by bot
+        link,
+        title: link, // Will be updated by bot
+        isActive: true,
       }).returning();
       res.json(result[0]);
     } catch (err) {
@@ -52,7 +53,7 @@ export function registerRoutes(app: Express) {
       const channelId = req.query.channelId as string;
 
       const query = channelId 
-        ? eq(media.channelId, channelId)
+        ? eq(channels.link, channelId)
         : undefined;
 
       const [mediaItems, total] = await Promise.all([
@@ -77,11 +78,37 @@ export function registerRoutes(app: Express) {
   app.get("/api/media/file/:objectId", async (req, res) => {
     try {
       const { getMediaUrl } = await import("./media-manager");
-      const signedUrl = await getMediaUrl(req.params.objectId);
-      res.json({ url: signedUrl });
+      const fileUrl = await getMediaUrl(req.params.objectId);
+      res.json({ url: fileUrl });
     } catch (error) {
       console.error("Error getting media URL:", error);
       res.status(404).json({ error: "File not found" });
+    }
+  });
+
+  // Test endpoint to verify media storage
+  app.post("/api/media/test", async (req, res) => {
+    try {
+      const testData = Buffer.from("Hello, this is a test file!");
+      const { downloadMedia } = await import("./media-manager");
+      
+      // Create a mock telegram file object
+      const mockFile = {
+        file_id: "test_file",
+        file_path: "test.txt"
+      };
+      
+      const savedPath = await downloadMedia(mockFile, "test.txt");
+      const fileUrl = await getMediaUrl(savedPath);
+      
+      res.json({ 
+        message: "Test file created successfully",
+        path: savedPath,
+        url: fileUrl
+      });
+    } catch (error) {
+      console.error("Error in test endpoint:", error);
+      res.status(500).json({ error: "Failed to create test file" });
     }
   });
 
@@ -90,7 +117,7 @@ export function registerRoutes(app: Express) {
     try {
       const limit = parseInt(req.query.limit as string) || 100;
       const logs = await db.select().from(systemLogs)
-        .orderBy(desc(systemLogs.timestamp))
+        .orderBy(desc(systemLogs.createdAt))
         .limit(limit);
       res.json(logs);
     } catch (err) {

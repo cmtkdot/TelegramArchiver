@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import path from "path";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic } from "./vite";
 import { createServer } from "http";
@@ -16,6 +17,8 @@ function log(message: string) {
 
 const app = express();
 app.use(express.json());
+// Serve static files from public directory
+app.use(express.static(path.join(process.cwd(), "public")));
 app.use(express.urlencoded({ extended: false }));
 
 app.use((req, res, next) => {

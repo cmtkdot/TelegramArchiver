@@ -1,20 +1,38 @@
-import { S3 } from "@replit/node-s3";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
 import TelegramBot from "node-telegram-bot-api";
 import fetch from "node-fetch";
+import fs from "fs/promises";
 
-const s3Client = new S3(process.env.REPLIT_DB_URL!, {
-  bucket: "replit-objstore-f68c34e2-ee87-4296-b5b4-ccd2b8ee9862",
+// Initialize storage path for media files
+const STORAGE_PATH = path.join(process.cwd(), "public", "media");
+
+// Ensure storage directory exists
+async function ensureStorageExists() {
+  try {
+    await fs.access(STORAGE_PATH);
+  } catch {
+    console.log('Creating media storage directory:', STORAGE_PATH);
+    await fs.mkdir(STORAGE_PATH, { recursive: true });
+  }
+  console.log('Media storage directory ready:', STORAGE_PATH);
+}
+
+// Initialize storage on module load
+ensureStorageExists().catch(error => {
+  console.error('Failed to initialize media storage:', error);
 });
 
 export async function downloadMedia(
   file: TelegramBot.File,
-  _storagePath: string // Keeping parameter for compatibility
+  _storagePath: string
 ): Promise<string> {
   try {
+    await ensureStorageExists();
+    
     const fileExt = path.extname(file.file_path || "") || ".bin";
     const objectId = `${uuidv4()}${fileExt}`;
+    const filePath = path.join(STORAGE_PATH, objectId);
 
     // Get the file URL from Telegram
     const fileUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
@@ -27,24 +45,25 @@ export async function downloadMedia(
     
     const buffer = Buffer.from(await response.arrayBuffer());
     
-    // Upload to Replit Object Storage
-    await s3Client.putObject(objectId, buffer, {
-      contentType: fileExt.startsWith(".") ? `image/${fileExt.slice(1)}` : "application/octet-stream",
-    });
+    // Save to local storage
+    await fs.writeFile(filePath, buffer);
 
     return objectId;
   } catch (error) {
-    console.error("Error uploading to object storage:", error);
+    console.error("Error saving media:", error);
     throw error;
   }
 }
 
 export async function getMediaUrl(objectId: string): Promise<string> {
   try {
-    const url = await s3Client.getSignedUrl(objectId, 3600); // URL valid for 1 hour
-    return url;
+    const filePath = path.join(STORAGE_PATH, objectId);
+    // Check if file exists
+    await fs.access(filePath);
+    // Return URL that will be handled by Express static middleware
+    return `/media/${objectId}`;
   } catch (error) {
-    console.error("Error getting signed URL:", error);
+    console.error("Error getting media URL:", error);
     throw error;
   }
 }

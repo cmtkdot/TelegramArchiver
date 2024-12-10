@@ -4,7 +4,8 @@ const API_BASE = "/api";
 
 export interface ChannelWithStats extends Channel {
   mediaCount: number;
-  lastMediaAt: string | null;
+  lastMediaAt: Date | null;
+  lastChecked: Date | null;
 }
 
 export async function fetchChannels(): Promise<ChannelWithStats[]> {
@@ -13,11 +14,11 @@ export async function fetchChannels(): Promise<ChannelWithStats[]> {
   return res.json();
 }
 
-export async function addChannel(channelId: string): Promise<Channel> {
+export async function addChannel(link: string): Promise<Channel> {
   const res = await fetch(`${API_BASE}/channels`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ channelId }),
+    body: JSON.stringify({ link }),
   });
   if (!res.ok) throw new Error("Failed to add channel");
   return res.json();
