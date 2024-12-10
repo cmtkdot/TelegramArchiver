@@ -38,7 +38,8 @@ export default function SystemLogs() {
             <div
               key={log.id}
               className={`flex items-center space-x-2 ${
-                log.level === "error" ? "text-red-400" : "text-green-400"
+                log.level === "error" ? "text-red-400" : 
+                log.level === "warning" ? "text-yellow-400" : "text-green-400"
               }`}
             >
               <span className="text-zinc-500">
