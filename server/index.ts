@@ -52,8 +52,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  registerRoutes(app);
-  const server = createServer(app);
+  try {
+    // Initialize storage
+    const { storageManager } = await import("./storage-manager");
+    const { setupStorage } = await import("../scripts/setup-storage");
+    await setupStorage();
+    
+    registerRoutes(app);
+    const server = createServer(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -138,42 +138,130 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // Media file serving
+  // Media file serving and management
   app.get("/api/media/file/:objectId", async (req, res) => {
     try {
-      const { getMediaUrl } = await import("./media-manager");
-      const fileUrl = await getMediaUrl(req.params.objectId);
-      res.json({ url: fileUrl });
+      console.log(`Attempting to serve media file: ${req.params.objectId}`);
+      const { storageManager } = await import("./storage-manager");
+      const { getMediaInfo } = await import("./media-manager");
+      
+      // Get file info
+      const info = await getMediaInfo(req.params.objectId);
+      if (!info) {
+        console.log(`No file info found for: ${req.params.objectId}`);
+        return res.status(404).json({ error: "File not found" });
+      }
+      
+      // Get file from storage
+      const buffer = await storageManager.getFile(req.params.objectId);
+      if (!buffer) {
+        console.log(`No file content found for: ${req.params.objectId}`);
+        return res.status(404).json({ error: "File content not found" });
+      }
+      
+      console.log(`Successfully retrieved file: ${req.params.objectId}, size: ${buffer.length} bytes`);
+      
+      // Set appropriate headers
+      res.setHeader('Content-Length', buffer.length);
+      res.setHeader('Content-Type', info.mime || 'application/octet-stream');
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      
+      // Send the file
+      res.send(buffer);
     } catch (error) {
-      console.error("Error getting media URL:", error);
-      res.status(404).json({ error: "File not found" });
+      console.error("Error serving media file:", error);
+      res.status(500).json({ 
+        error: "Failed to serve media file",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   });
 
-  // Test endpoint to verify media storage
-  app.post("/api/media/test", async (req, res) => {
+  // Download media from Telegram
+  app.post("/api/media/download/:mediaId", async (req, res) => {
     try {
-      const testData = Buffer.from("Hello, this is a test file!");
+      const mediaId = parseInt(req.params.mediaId);
+      
+      // Get media info from database
+      const mediaItem = await db.select()
+        .from(media)
+        .where(eq(media.id, mediaId))
+        .limit(1);
+
+      if (!mediaItem || mediaItem.length === 0) {
+        return res.status(404).json({ error: "Media not found" });
+      }
+
+      const item = mediaItem[0];
+      
+      // If already downloaded, return existing URL
+      if (item.localPath && item.downloadUrl) {
+        return res.json({ 
+          url: item.downloadUrl,
+          status: 'ready'
+        });
+      }
+
+      // Start download process
       const { downloadMedia } = await import("./media-manager");
       
-      // Create a mock telegram file object
-      const mockFile = {
-        file_id: "test_file",
-        file_path: "test.txt",
-        file_unique_id: "test_unique_id"
+      const fileObject = {
+        file_id: item.fileId,
+        media_type: item.mediaType || undefined,
+        file_path: item.filename || undefined,
+        file_unique_id: item.id ? item.id.toString() : undefined
       };
-      
-      const savedPath = await downloadMedia(mockFile, "test.txt");
-      const fileUrl = await getMediaUrl(savedPath);
+
+      const objectId = await downloadMedia(fileObject, item.filename);
       
       res.json({ 
-        message: "Test file created successfully",
-        path: savedPath,
-        url: fileUrl
+        url: `/api/media/file/${objectId}`,
+        status: 'ready'
       });
     } catch (error) {
-      console.error("Error in test endpoint:", error);
-      res.status(500).json({ error: "Failed to create test file" });
+      console.error("Error downloading media:", error);
+      res.status(500).json({ 
+        error: "Failed to download media",
+        details: error instanceof Error ? error.message : "Unknown error occurred"
+      });
+    }
+  });
+
+  // Get media info
+  app.get("/api/media/:mediaId/info", async (req, res) => {
+    try {
+      const mediaId = parseInt(req.params.mediaId);
+      
+      const mediaItem = await db.select()
+        .from(media)
+        .where(eq(media.id, mediaId))
+        .limit(1);
+
+      if (!mediaItem || mediaItem.length === 0) {
+        return res.status(404).json({ error: "Media not found" });
+      }
+
+      const item = mediaItem[0];
+      
+      // If file is downloaded, get additional info
+      let fileInfo = null;
+      if (item.localPath) {
+        const { getMediaInfo } = await import("./media-manager");
+        fileInfo = await getMediaInfo(path.basename(item.localPath));
+      }
+
+      res.json({
+        id: item.id,
+        type: item.mediaType,
+        size: fileInfo?.size || item.fileSize,
+        created: item.createdAt,
+        downloaded: item.downloadedAt,
+        status: item.status || 'pending',
+        url: item.downloadUrl
+      });
+    } catch (error) {
+      console.error("Error getting media info:", error);
+      res.status(500).json({ error: "Failed to get media info" });
     }
   });
 
