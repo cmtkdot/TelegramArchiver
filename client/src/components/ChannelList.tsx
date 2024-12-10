@@ -21,7 +21,7 @@ export default function ChannelList() {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-semibold">{channel.name}</h3>
-                <Badge variant={channel.isActive ? "success" : "secondary"}>
+                <Badge variant={channel.isActive ? "default" : "secondary"}>
                   {channel.isActive ? "Active" : "Inactive"}
                 </Badge>
               </div>

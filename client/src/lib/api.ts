@@ -23,11 +23,15 @@ export async function addChannel(channelId: string): Promise<Channel> {
   return res.json();
 }
 
+interface MediaWithUrl extends Media {
+  signedUrl?: string;
+}
+
 export async function fetchMedia(
   channelId?: string,
   page = 1,
   limit = 20
-): Promise<{ media: Media[]; total: number }> {
+): Promise<{ media: MediaWithUrl[]; total: number }> {
   const params = new URLSearchParams({
     page: page.toString(),
     limit: limit.toString(),
