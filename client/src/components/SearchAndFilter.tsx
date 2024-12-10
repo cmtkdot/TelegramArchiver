@@ -1,209 +1,137 @@
 import React, { useState, useEffect } from 'react';
-import { SearchFilters, listTags } from '@/lib/api';
-import { Card, CardContent } from '@/components/ui/card';
+import { SearchFilters } from '@/lib/api';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Label } from '@/components/ui/label';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
 import { Slider } from '@/components/ui/slider';
-import { Badge } from '@/components/ui/badge';
-import { X, Calendar as CalendarIcon, Tag, Filter } from 'lucide-react';
 
 interface SearchAndFilterProps {
   onFiltersChange: (filters: SearchFilters) => void;
+  initialFilters?: SearchFilters;
 }
 
-export function SearchAndFilter({ onFiltersChange }: SearchAndFilterProps) {
-  const [filters, setFilters] = useState<SearchFilters>({});
-  const [availableTags, setAvailableTags] = useState<Array<{ tag: string; count: number }>>([]);
-  const [showFilters, setShowFilters] = useState(false);
+export function SearchAndFilter({ onFiltersChange, initialFilters }: SearchAndFilterProps) {
+  const [filters, setFilters] = useState<SearchFilters>(initialFilters || {});
+  const [sizeRange, setSizeRange] = useState<[number, number]>([0, 100]);
+
+  const mediaTypes = [
+    { value: 'photo', label: 'Photos' },
+    { value: 'video', label: 'Videos' },
+    { value: 'document', label: 'Documents' }
+  ];
 
   useEffect(() => {
-    loadTags();
-  }, []);
+    onFiltersChange(filters);
+  }, [filters, onFiltersChange]);
 
-  const loadTags = async () => {
-    try {
-      const tags = await listTags();
-      setAvailableTags(tags);
-    } catch (error) {
-      console.error('Error loading tags:', error);
-    }
-  };
-
-  const handleSearchChange = (query: string) => {
-    setFilters(prev => ({ ...prev, query }));
-  };
-
-  const handleMediaTypeToggle = (type: 'photo' | 'video' | 'document') => {
+  const handleMediaTypeChange = (type: string, checked: boolean) => {
     setFilters(prev => {
       const mediaTypes = prev.mediaTypes || [];
-      const updated = mediaTypes.includes(type)
-        ? mediaTypes.filter(t => t !== type)
-        : [...mediaTypes, type];
-      return { ...prev, mediaTypes: updated };
+      if (checked) {
+        return { ...prev, mediaTypes: [...mediaTypes, type as 'photo' | 'video' | 'document'] };
+      } else {
+        return { ...prev, mediaTypes: mediaTypes.filter(t => t !== type) };
+      }
     });
   };
 
-  const handleDateRangeChange = (start: Date | undefined, end: Date | undefined) => {
-    if (start && end) {
-      setFilters(prev => ({ ...prev, dateRange: { start, end } }));
-    }
-  };
-
-  const handleFileSizeChange = (range: [number, number]) => {
+  const handleSizeRangeChange = (values: number[]) => {
+    setSizeRange([values[0], values[1]]);
     setFilters(prev => ({
       ...prev,
-      fileSizeRange: { min: range[0], max: range[1] }
+      minSize: values[0] * 1024 * 1024, // Convert MB to bytes
+      maxSize: values[1] * 1024 * 1024
     }));
   };
 
-  const handleTagToggle = (tag: string) => {
-    setFilters(prev => {
-      const tags = prev.tags || [];
-      const updated = tags.includes(tag)
-        ? tags.filter(t => t !== tag)
-        : [...tags, tag];
-      return { ...prev, tags: updated };
-    });
-  };
-
-  const applyFilters = () => {
-    onFiltersChange(filters);
-  };
-
-  const resetFilters = () => {
+  const handleReset = () => {
     setFilters({});
-    onFiltersChange({});
+    setSizeRange([0, 100]);
   };
 
   return (
-    <Card className="mb-6">
-      <CardContent className="pt-6">
-        <div className="space-y-4">
-          {/* Search Input */}
-          <div className="flex gap-2">
-            <Input
-              placeholder="Search media..."
-              value={filters.query || ''}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              className="flex-1"
-            />
-            <Button
-              variant="outline"
-              onClick={() => setShowFilters(!showFilters)}
-              className="gap-2"
-            >
-              <Filter className="h-4 w-4" />
-              Filters
-            </Button>
-          </div>
-
-          {/* Advanced Filters */}
-          {showFilters && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-              {/* Media Types */}
-              <div className="space-y-2">
-                <Label>Media Types</Label>
-                <div className="flex gap-4">
-                  {(['photo', 'video', 'document'] as const).map(type => (
-                    <div key={type} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`type-${type}`}
-                        checked={filters.mediaTypes?.includes(type)}
-                        onCheckedChange={() => handleMediaTypeToggle(type)}
-                      />
-                      <Label htmlFor={`type-${type}`} className="capitalize">
-                        {type}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Date Range */}
-              <div className="space-y-2">
-                <Label>Date Range</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start gap-2">
-                      <CalendarIcon className="h-4 w-4" />
-                      {filters.dateRange
-                        ? `${filters.dateRange.start.toLocaleDateString()} - ${filters.dateRange.end.toLocaleDateString()}`
-                        : 'Select dates'}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="range"
-                      selected={{
-                        from: filters.dateRange?.start,
-                        to: filters.dateRange?.end
-                      }}
-                      onSelect={(range) => {
-                        if (range?.from && range?.to) {
-                          handleDateRangeChange(range.from, range.to);
-                        }
-                      }}
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              {/* File Size Range */}
-              <div className="space-y-2">
-                <Label>File Size (MB)</Label>
-                <Slider
-                  min={0}
-                  max={1000}
-                  step={1}
-                  value={[
-                    filters.fileSizeRange?.min || 0,
-                    filters.fileSizeRange?.max || 1000
-                  ]}
-                  onValueChange={handleFileSizeChange}
-                />
-                <div className="text-sm text-gray-500">
-                  {filters.fileSizeRange?.min || 0}MB - {filters.fileSizeRange?.max || 1000}MB
-                </div>
-              </div>
-
-              {/* Tags */}
-              <div className="space-y-2 col-span-full">
-                <Label>Tags</Label>
-                <div className="flex flex-wrap gap-2">
-                  {availableTags.map(({ tag, count }) => (
-                    <Badge
-                      key={tag}
-                      variant={filters.tags?.includes(tag) ? 'default' : 'outline'}
-                      className="cursor-pointer"
-                      onClick={() => handleTagToggle(tag)}
-                    >
-                      {tag} ({count})
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="col-span-full flex justify-end gap-2">
-                <Button variant="outline" onClick={resetFilters}>
-                  Reset
-                </Button>
-                <Button onClick={applyFilters} className="bg-[#3c75ef]">
-                  Apply Filters
-                </Button>
-              </div>
-            </div>
-          )}
+    <Card className="p-4">
+      <div className="space-y-4">
+        {/* Search Query */}
+        <div className="space-y-2">
+          <Label>Search</Label>
+          <Input
+            type="text"
+            placeholder="Search media..."
+            value={filters.query || ''}
+            onChange={e => setFilters(prev => ({ ...prev, query: e.target.value }))}
+          />
         </div>
-      </CardContent>
+
+        {/* Media Types */}
+        <div className="space-y-2">
+          <Label>Media Types</Label>
+          <div className="flex flex-wrap gap-4">
+            {mediaTypes.map(type => (
+              <div key={type.value} className="flex items-center space-x-2">
+                <Checkbox
+                  id={type.value}
+                  checked={filters.mediaTypes?.includes(type.value as any)}
+                  onCheckedChange={checked => handleMediaTypeChange(type.value, !!checked)}
+                />
+                <label
+                  htmlFor={type.value}
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  {type.label}
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Date Range */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Start Date</Label>
+            <DatePicker
+              date={filters.startDate}
+              onSelect={date => setFilters(prev => ({ ...prev, startDate: date }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>End Date</Label>
+            <DatePicker
+              date={filters.endDate}
+              onSelect={date => setFilters(prev => ({ ...prev, endDate: date }))}
+            />
+          </div>
+        </div>
+
+        {/* Size Range */}
+        <div className="space-y-2">
+          <Label>File Size Range (MB)</Label>
+          <Slider
+            value={sizeRange}
+            min={0}
+            max={100}
+            step={1}
+            onValueChange={handleSizeRangeChange}
+          />
+          <div className="flex justify-between text-sm text-gray-500">
+            <span>{sizeRange[0]} MB</span>
+            <span>{sizeRange[1]} MB</span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex justify-end space-x-2">
+          <Button variant="outline" onClick={handleReset}>
+            Reset Filters
+          </Button>
+          <Button onClick={() => onFiltersChange(filters)}>
+            Apply Filters
+          </Button>
+        </div>
+      </div>
     </Card>
   );
 } 

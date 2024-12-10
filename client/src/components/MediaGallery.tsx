@@ -3,38 +3,25 @@ import { fetchChannelMedia, searchMedia, MediaItem, SearchFilters } from '@/lib/
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { useToast } from '@/components/ui/use-toast';
 import { Pagination } from '@/components/ui/pagination';
-import { Download, MoreVertical, Eye, Tag, Loader2 } from 'lucide-react';
-import { toast } from '@/components/ui/use-toast';
 
-export interface MediaGalleryProps {
-  channelId: number;
+const ITEMS_PER_PAGE = 20;
+
+interface MediaGalleryProps {
+  channelId?: number;
   filters?: SearchFilters;
-  onMediaSelect?: (media: MediaItem) => void;
-  onBulkSelect?: (media: MediaItem[]) => void;
 }
 
-export function MediaGallery({ 
-  channelId, 
-  filters, 
-  onMediaSelect,
-  onBulkSelect 
-}: MediaGalleryProps) {
+export function MediaGallery({ channelId, filters }: MediaGalleryProps) {
   const [media, setMedia] = useState<MediaItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
   const [imageLoadErrors, setImageLoadErrors] = useState<Set<number>>(new Set());
-
-  const ITEMS_PER_PAGE = 12;
+  const { toast } = useToast();
 
   useEffect(() => {
     loadMedia();
@@ -42,173 +29,145 @@ export function MediaGallery({
 
   const loadMedia = async () => {
     try {
-      setLoading(true);
+      setIsLoading(true);
       let result;
       if (filters && Object.keys(filters).length > 0) {
-        result = await searchMedia({ ...filters, channelIds: [channelId] }, page, ITEMS_PER_PAGE);
-      } else {
+        result = await searchMedia({ ...filters, channelIds: channelId ? [channelId] : undefined }, page, ITEMS_PER_PAGE);
+      } else if (channelId) {
         result = await fetchChannelMedia(channelId, page, ITEMS_PER_PAGE);
+      } else {
+        result = await searchMedia({}, page, ITEMS_PER_PAGE);
       }
-      setMedia(result.media);
+      setMedia(result.items);
       setTotalPages(Math.ceil(result.total / ITEMS_PER_PAGE));
     } catch (error) {
       console.error('Error loading media:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load media',
+        description: 'Failed to load media items',
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  const handleMediaClick = (mediaItem: MediaItem, event: React.MouseEvent) => {
-    if (event.ctrlKey || event.metaKey) {
-      // Handle multi-select
-      const newSelectedItems = new Set(selectedItems);
-      if (newSelectedItems.has(mediaItem.id)) {
-        newSelectedItems.delete(mediaItem.id);
+  const handleImageError = (id: number) => {
+    setImageLoadErrors(prev => new Set(Array.from(prev).concat(id)));
+  };
+
+  const handleSelect = (id: number) => {
+    setSelectedItems(prev => {
+      const newSet = new Set(Array.from(prev));
+      if (newSet.has(id)) {
+        newSet.delete(id);
       } else {
-        newSelectedItems.add(mediaItem.id);
+        newSet.add(id);
       }
-      setSelectedItems(newSelectedItems);
-      onBulkSelect?.(media.filter(m => newSelectedItems.has(m.id)));
-    } else {
-      // Handle single select
-      setSelectedId(mediaItem.id);
-      onMediaSelect?.(mediaItem);
-      setSelectedItems(new Set([mediaItem.id]));
-    }
+      return newSet;
+    });
   };
 
   const handleSelectAll = () => {
     if (selectedItems.size === media.length) {
       setSelectedItems(new Set());
-      onBulkSelect?.([]);
     } else {
-      const allIds = new Set(media.map(m => m.id));
-      setSelectedItems(allIds);
-      onBulkSelect?.(media);
+      setSelectedItems(new Set(media.map(item => item.id)));
     }
   };
 
   const handleDownload = async (mediaItem: MediaItem) => {
     try {
-      const response = await fetch(mediaItem.downloadUrl!);
-      if (!response.ok) throw new Error('Download failed');
-      
+      const response = await fetch(mediaItem.downloadUrl);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${mediaItem.mediaType}_${mediaItem.id}${getFileExtension(mediaItem.mediaType)}`;
+      a.download = `${mediaItem.filename}`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-      
-      toast({
-        title: 'Success',
-        description: 'File downloaded successfully',
-      });
     } catch (error) {
-      console.error('Error downloading media:', error);
+      console.error('Error downloading file:', error);
       toast({
-        title: 'Error',
-        description: 'Failed to download file',
+        title: 'Download Failed',
+        description: 'Failed to download the file',
         variant: 'destructive',
       });
     }
   };
 
-  const handleImageError = (mediaId: number) => {
-    setImageLoadErrors(prev => new Set(prev).add(mediaId));
-  };
-
-  const getFileExtension = (mediaType: string) => {
-    switch (mediaType.toLowerCase()) {
-      case 'photo':
-        return '.jpg';
-      case 'video':
-        return '.mp4';
-      default:
-        return '';
+  const handleBulkDownload = async () => {
+    try {
+      const selectedMedia = media.filter(item => selectedItems.has(item.id));
+      await Promise.all(selectedMedia.map(handleDownload));
+      toast({
+        title: 'Success',
+        description: 'All selected files downloaded successfully',
+      });
+    } catch (error) {
+      console.error('Error in bulk download:', error);
+      toast({
+        title: 'Download Failed',
+        description: 'Failed to download some files',
+        variant: 'destructive',
+      });
     }
   };
 
-  if (loading) {
-    return (
-      <div className="grid place-items-center h-64">
-        <div className="flex items-center gap-2">
-          <Loader2 className="h-6 w-6 animate-spin text-[#3c75ef]" />
-          <span>Loading media...</span>
-        </div>
-      </div>
-    );
-  }
+  const getFileIcon = (mimeType: string) => {
+    if (mimeType.startsWith('image/')) return '🖼️';
+    if (mimeType.startsWith('video/')) return '🎥';
+    if (mimeType.startsWith('audio/')) return '🎵';
+    return '📄';
+  };
+
+  const formatFileSize = (bytes: number) => {
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let size = bytes;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex++;
+    }
+    return `${size.toFixed(1)} ${units[unitIndex]}`;
+  };
 
   return (
     <div className="space-y-4">
-      {/* Bulk Actions */}
-      {media.length > 0 && (
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={selectedItems.size === media.length}
-              onCheckedChange={handleSelectAll}
-            />
-            <span className="text-sm text-gray-600">
-              {selectedItems.size} selected
-            </span>
-          </div>
-          {selectedItems.size > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const selectedMedia = media.filter(m => selectedItems.has(m.id));
-                Promise.all(selectedMedia.map(handleDownload));
-              }}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download Selected
-            </Button>
-          )}
+      {/* Toolbar */}
+      <div className="flex justify-between items-center">
+        <div className="flex items-center space-x-2">
+          <Checkbox
+            checked={selectedItems.size === media.length && media.length > 0}
+            onCheckedChange={handleSelectAll}
+          />
+          <span className="text-sm text-gray-500">
+            {selectedItems.size} selected
+          </span>
         </div>
-      )}
+        {selectedItems.size > 0 && (
+          <Button onClick={handleBulkDownload}>
+            Download Selected
+          </Button>
+        )}
+      </div>
 
       {/* Media Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {media.map((item) => (
-          <Card
-            key={item.id}
-            className={`overflow-hidden hover:shadow-lg transition-shadow cursor-pointer ${
-              selectedItems.has(item.id) ? 'ring-2 ring-[#3c75ef]' : ''
-            }`}
-            onClick={(e) => handleMediaClick(item, e)}
-          >
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {media.map(item => (
+          <Card key={item.id} className="overflow-hidden">
             <div className="relative aspect-video">
-              {/* Selection Checkbox */}
               <div className="absolute top-2 left-2 z-10">
                 <Checkbox
                   checked={selectedItems.has(item.id)}
-                  onCheckedChange={(checked) => {
-                    const newSelectedItems = new Set(selectedItems);
-                    if (checked) {
-                      newSelectedItems.add(item.id);
-                    } else {
-                      newSelectedItems.delete(item.id);
-                    }
-                    setSelectedItems(newSelectedItems);
-                    onBulkSelect?.(media.filter(m => newSelectedItems.has(m.id)));
-                  }}
-                  onClick={(e) => e.stopPropagation()}
+                  onCheckedChange={() => handleSelect(item.id)}
                 />
               </div>
 
               {/* Media Preview */}
-              {item.mediaType === 'photo' ? (
+              {item.mimeType.startsWith('image/') ? (
                 imageLoadErrors.has(item.id) ? (
                   <div className="w-full h-full flex items-center justify-center bg-gray-100">
                     <span className="text-sm text-gray-500">Image not available</span>
@@ -216,91 +175,54 @@ export function MediaGallery({
                 ) : (
                   <img
                     src={item.downloadUrl}
-                    alt={item.caption || `Media ${item.id}`}
+                    alt={item.caption || item.filename}
                     className="w-full h-full object-cover"
                     onError={() => handleImageError(item.id)}
                   />
                 )
               ) : (
-                <video
-                  src={item.downloadUrl}
-                  className="w-full h-full object-cover"
-                  controls
-                  onError={() => handleImageError(item.id)}
-                />
+                <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                  <span className="text-4xl">{getFileIcon(item.mimeType)}</span>
+                </div>
               )}
-
-              {/* Actions Dropdown */}
-              <div className="absolute top-2 right-2">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" className="bg-white/90 hover:bg-white">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={(e) => {
-                      e.stopPropagation();
-                      handleDownload(item);
-                    }}>
-                      <Download className="mr-2 h-4 w-4" />
-                      Download
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={(e) => {
-                      e.stopPropagation();
-                      window.open(item.downloadUrl, '_blank');
-                    }}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      View Original
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
             </div>
 
-            {/* Media Info */}
             <div className="p-4">
               <div className="space-y-2">
                 <div className="text-sm font-medium line-clamp-2">
-                  {item.caption || `${item.mediaType} ${item.id}`}
+                  {item.caption || item.filename}
                 </div>
                 <div className="flex justify-between items-center text-xs text-gray-500">
-                  <span>{item.fileSize}</span>
-                  <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                  <span>{formatFileSize(item.size)}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDownload(item)}
+                  >
+                    Download
+                  </Button>
                 </div>
-                {item.tags && item.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {item.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-[#3c75ef]/10 text-[#3c75ef]"
-                      >
-                        <Tag className="h-3 w-3 mr-1" />
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           </Card>
         ))}
-
-        {media.length === 0 && (
-          <div className="col-span-full text-center py-12 text-gray-500">
-            No media found
-          </div>
-        )}
       </div>
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex justify-center mt-6">
+        <div className="flex justify-center mt-4">
           <Pagination
             currentPage={page}
             totalPages={totalPages}
             onPageChange={setPage}
           />
+        </div>
+      )}
+
+      {/* Loading State */}
+      {isLoading && (
+        <div className="flex justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
       )}
     </div>

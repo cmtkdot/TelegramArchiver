@@ -1,226 +1,206 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { toast } from '@/components/ui/use-toast';
-import { HardDrive, Database, Cloud, AlertCircle, CheckCircle2 } from 'lucide-react';
-
-interface StorageStatus {
-  database: {
-    connected: boolean;
-    mediaCount: number;
-    totalSize: string;
-    lastSync: Date | null;
-  };
-  objectStorage: {
-    connected: boolean;
-    provider: string;
-    bucket: string;
-    availableSpace: string;
-    usedSpace: string;
-    usagePercent: number;
-  };
-}
+import { useToast } from '@/components/ui/use-toast';
+import { initializeStorage, checkStorageHealth, StorageHealth, StorageStatus } from '@/lib/api';
 
 export function StorageDiagnostic() {
+  const [health, setHealth] = useState<StorageHealth | null>(null);
   const [status, setStatus] = useState<StorageStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [testing, setTesting] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
-    checkStatus();
+    checkHealth();
   }, []);
 
-  const checkStatus = async () => {
+  const checkHealth = async () => {
     try {
-      setLoading(true);
-      const response = await fetch('/api/storage/status');
-      if (!response.ok) throw new Error('Failed to fetch storage status');
-      const data = await response.json();
-      setStatus(data);
+      const healthData = await checkStorageHealth();
+      setHealth(healthData);
     } catch (error) {
-      console.error('Error checking storage status:', error);
+      console.error('Error checking storage health:', error);
       toast({
         title: 'Error',
-        description: 'Failed to check storage status',
+        description: 'Failed to check storage health',
         variant: 'destructive',
       });
-    } finally {
-      setLoading(false);
     }
   };
 
-  const testConnection = async () => {
+  const handleInitialize = async () => {
     try {
-      setTesting(true);
-      const response = await fetch('/api/storage/test', { method: 'POST' });
-      if (!response.ok) throw new Error('Connection test failed');
-      
+      setIsInitializing(true);
+      const healthData = await initializeStorage();
+      setHealth(healthData);
       toast({
         title: 'Success',
-        description: 'Storage connection test passed',
+        description: 'Storage system initialized successfully',
       });
-      
-      // Refresh status after test
-      await checkStatus();
     } catch (error) {
-      console.error('Error testing storage connection:', error);
+      console.error('Error initializing storage:', error);
       toast({
         title: 'Error',
-        description: 'Storage connection test failed',
+        description: 'Failed to initialize storage system',
         variant: 'destructive',
       });
     } finally {
-      setTesting(false);
+      setIsInitializing(false);
     }
   };
 
-  if (loading) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-center gap-2">
-            <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#3c75ef] border-t-transparent" />
-            <span>Checking storage status...</span>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const formatStorageSize = (bytes: number) => {
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = bytes;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex++;
+    }
+    return `${size.toFixed(1)} ${units[unitIndex]}`;
+  };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <HardDrive className="h-5 w-5" />
-          Storage Diagnostic
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Database Status */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Database className="h-4 w-4" />
-              <h3 className="font-medium">Database Storage</h3>
-            </div>
-            <Badge
-              variant={status?.database.connected ? 'default' : 'destructive'}
-              className="capitalize"
+    <Card className="p-6">
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Storage Diagnostic</h3>
+          <div className="space-x-2">
+            <Button
+              variant="outline"
+              onClick={checkHealth}
+              disabled={isInitializing}
             >
-              {status?.database.connected ? 'Connected' : 'Disconnected'}
-            </Badge>
+              Check Health
+            </Button>
+            <Button
+              onClick={handleInitialize}
+              disabled={isInitializing}
+            >
+              {isInitializing ? 'Initializing...' : 'Initialize Storage'}
+            </Button>
           </div>
-          
-          {status?.database.connected && (
-            <div className="grid grid-cols-3 gap-4 mt-2">
-              <div className="space-y-1">
-                <div className="text-sm text-gray-500">Media Count</div>
-                <div className="font-medium">{status.database.mediaCount}</div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-sm text-gray-500">Total Size</div>
-                <div className="font-medium">{status.database.totalSize}</div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-sm text-gray-500">Last Sync</div>
-                <div className="font-medium">
-                  {status.database.lastSync
-                    ? new Date(status.database.lastSync).toLocaleString()
-                    : 'Never'}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Object Storage Status */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Cloud className="h-4 w-4" />
-              <h3 className="font-medium">Object Storage</h3>
+        {/* Health Status */}
+        {health && (
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2">
+              <div
+                className={`h-3 w-3 rounded-full ${
+                  health.isHealthy ? 'bg-green-500' : 'bg-red-500'
+                }`}
+              />
+              <span className="font-medium">
+                {health.isHealthy ? 'Healthy' : 'Issues Detected'}
+              </span>
             </div>
-            <Badge
-              variant={status?.objectStorage.connected ? 'default' : 'destructive'}
-              className="capitalize"
-            >
-              {status?.objectStorage.connected ? 'Connected' : 'Disconnected'}
-            </Badge>
+
+            {/* Directory Status */}
+            <div className="space-y-2">
+              <h4 className="font-medium">Directory Status</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {health.directories.map((dir, index) => (
+                  <div
+                    key={index}
+                    className="p-3 rounded-lg border bg-card text-card-foreground"
+                  >
+                    <div className="text-sm font-medium truncate">
+                      {dir.path}
+                    </div>
+                    <div className="mt-1 flex items-center space-x-2">
+                      <span
+                        className={`text-xs ${
+                          dir.exists && dir.writable
+                            ? 'text-green-500'
+                            : 'text-red-500'
+                        }`}
+                      >
+                        {dir.exists
+                          ? dir.writable
+                            ? '✓ Ready'
+                            : '⚠ Not Writable'
+                          : '✗ Missing'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Error Messages */}
+            {health.errors.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="font-medium text-red-500">Issues Found</h4>
+                <ul className="space-y-1 text-sm text-red-500">
+                  {health.errors.map((error, index) => (
+                    <li key={index}>• {error}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
-          
-          {status?.objectStorage.connected && (
-            <>
-              <div className="grid grid-cols-3 gap-4 mt-2">
+        )}
+
+        {/* Storage Status */}
+        {status && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Database Stats */}
+              <div className="space-y-2">
+                <h4 className="font-medium">Database</h4>
                 <div className="space-y-1">
-                  <div className="text-sm text-gray-500">Provider</div>
-                  <div className="font-medium capitalize">
-                    {status.objectStorage.provider}
+                  <div className="flex justify-between text-sm">
+                    <span>Media Count</span>
+                    <span>{status.database.mediaCount}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Total Size</span>
+                    <span>{status.database.totalSize}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Last Sync</span>
+                    <span>
+                      {status.database.lastSync
+                        ? new Date(status.database.lastSync).toLocaleString()
+                        : 'Never'}
+                    </span>
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <div className="text-sm text-gray-500">Bucket</div>
-                  <div className="font-medium">{status.objectStorage.bucket}</div>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-sm text-gray-500">Used Space</div>
-                  <div className="font-medium">{status.objectStorage.usedSpace}</div>
-                </div>
               </div>
 
-              <div className="space-y-1">
-                <div className="flex justify-between text-sm">
-                  <span>Storage Usage</span>
-                  <span>{status.objectStorage.usagePercent}%</span>
+              {/* Object Storage Stats */}
+              <div className="space-y-2">
+                <h4 className="font-medium">Object Storage</h4>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span>Provider</span>
+                    <span>{status.objectStorage.provider}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Bucket</span>
+                    <span>{status.objectStorage.bucket}</span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span>Storage Usage</span>
+                      <span>
+                        {status.objectStorage.usedSpace} /{' '}
+                        {status.objectStorage.availableSpace}
+                      </span>
+                    </div>
+                    <Progress
+                      value={status.objectStorage.usagePercent}
+                      className="h-2"
+                    />
+                  </div>
                 </div>
-                <Progress value={status.objectStorage.usagePercent} />
               </div>
-            </>
-          )}
-        </div>
-
-        {/* Status Summary */}
-        <div className="rounded-lg border p-4 mt-4">
-          <div className="flex items-start gap-3">
-            {status?.database.connected && status?.objectStorage.connected ? (
-              <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5" />
-            ) : (
-              <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
-            )}
-            <div>
-              <h4 className="font-medium">
-                {status?.database.connected && status?.objectStorage.connected
-                  ? 'Storage System Healthy'
-                  : 'Storage System Issues Detected'}
-              </h4>
-              <p className="text-sm text-gray-500 mt-1">
-                {status?.database.connected && status?.objectStorage.connected
-                  ? 'All storage systems are connected and functioning properly.'
-                  : 'One or more storage systems are not functioning properly. Check the connection details above.'}
-              </p>
             </div>
           </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="outline"
-            onClick={checkStatus}
-            disabled={loading}
-          >
-            Refresh Status
-          </Button>
-          <Button
-            onClick={testConnection}
-            disabled={testing}
-            className="bg-[#3c75ef]"
-          >
-            {testing ? 'Testing...' : 'Test Connection'}
-          </Button>
-        </div>
-      </CardContent>
+        )}
+      </div>
     </Card>
   );
 } 

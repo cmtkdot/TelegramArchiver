@@ -1,5 +1,7 @@
 import Database from "@replit/database";
 import path from 'path';
+import fs from 'fs/promises';
+import { StorageConfig } from '../client/src/lib/api';
 
 // Initialize storage client
 const storage = new Database(process.env.REPLIT_DB_URL);
@@ -10,48 +12,78 @@ storage.list().catch(error => {
   process.exit(1);
 });
 
-// Define types for stored data
 interface StoredFileData {
   data: string;
   type: string;
   filename: string;
   uploaded: string;
+  localPath: string;
+  downloadUrl: string;
+  size: number;
 }
 
 export class StorageManager {
   private bucketPrefix: string = 'media-files/';
+  private baseStoragePath: string;
+  private baseDownloadUrl: string;
   
-  constructor(prefix?: string) {
-    if (prefix) {
-      this.bucketPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
+  constructor(config?: StorageConfig) {
+    this.baseStoragePath = path.join(process.cwd(), 'storage', 'media');
+    this.baseDownloadUrl = process.env.BASE_URL || 'http://localhost:3000';
+    
+    if (config?.path) {
+      this.bucketPrefix = config.path.endsWith('/') ? config.path : `${config.path}/`;
     }
   }
 
   /**
-   * Upload a file to object storage
+   * Upload a file to storage and save metadata
    */
   async uploadFile(
     buffer: Buffer,
     filename: string,
     mediaType: string
-  ): Promise<string> {
+  ): Promise<{
+    key: string;
+    localPath: string;
+    downloadUrl: string;
+    size: number;
+  }> {
     try {
-      // Generate a unique path for the file
-      const key = `${this.bucketPrefix}${mediaType}/${path.basename(filename)}`;
+      // Generate unique filename
+      const uniqueFilename = `${Date.now()}-${path.basename(filename)}`;
+      const mediaFolder = mediaType.split('/')[0]; // e.g., 'image' from 'image/jpeg'
+      const relativePath = path.join(this.bucketPrefix, mediaFolder, uniqueFilename);
+      const localPath = path.join(this.baseStoragePath, mediaFolder, uniqueFilename);
       
-      // Convert buffer to base64 for storage
-      const base64Data = buffer.toString('base64');
+      // Ensure directory exists
+      await fs.mkdir(path.dirname(localPath), { recursive: true });
       
+      // Save file to local storage
+      await fs.writeFile(localPath, buffer);
+      
+      // Generate download URL
+      const downloadUrl = `${this.baseDownloadUrl}/api/media/download/${mediaFolder}/${uniqueFilename}`;
+      
+      // Store metadata
       const fileData: StoredFileData = {
-        data: base64Data,
+        data: '', // We don't store the actual data in DB anymore
         type: mediaType,
-        filename: filename,
-        uploaded: new Date().toISOString()
+        filename: uniqueFilename,
+        uploaded: new Date().toISOString(),
+        localPath: relativePath,
+        downloadUrl,
+        size: buffer.length,
       };
       
-      // Store in Replit Database
-      await storage.set(key, JSON.stringify(fileData));
-      return key;
+      await this.saveMetadata(relativePath, fileData);
+      
+      return {
+        key: relativePath,
+        localPath: relativePath,
+        downloadUrl,
+        size: buffer.length,
+      };
     } catch (error) {
       console.error("Error uploading file:", error);
       throw error;
@@ -59,21 +91,17 @@ export class StorageManager {
   }
 
   /**
-   * Get a file from object storage
+   * Get a file from storage
    */
   async getFile(key: string): Promise<Buffer> {
     try {
-      const rawData = await storage.get(key) as unknown;
-      if (!rawData) {
+      const metadata = await this.getFileInfo(key);
+      if (!metadata) {
         throw new Error('File not found');
       }
       
-      const fileData = JSON.parse(rawData as string) as StoredFileData;
-      if (!fileData.data) {
-        throw new Error('Invalid file data');
-      }
-      
-      return Buffer.from(fileData.data, 'base64');
+      const fullPath = path.join(this.baseStoragePath, metadata.localPath);
+      return fs.readFile(fullPath);
     } catch (error) {
       console.error("Error getting file:", error);
       throw error;
@@ -81,11 +109,16 @@ export class StorageManager {
   }
 
   /**
-   * Delete a file from object storage
+   * Delete a file from storage
    */
   async deleteFile(key: string): Promise<void> {
     try {
-      await storage.delete(key);
+      const metadata = await this.getFileInfo(key);
+      if (metadata) {
+        const fullPath = path.join(this.baseStoragePath, metadata.localPath);
+        await fs.unlink(fullPath);
+        await this.deleteMetadata(key);
+      }
     } catch (error) {
       console.error("Error deleting file:", error);
       throw error;
@@ -99,20 +132,21 @@ export class StorageManager {
     type: string;
     filename: string;
     uploaded: string;
+    localPath: string;
+    downloadUrl: string;
     size: number;
   } | null> {
     try {
-      const rawData = await storage.get(key) as unknown;
-      if (!rawData) {
-        return null;
-      }
+      const fileData = await this.getMetadata(key);
+      if (!fileData) return null;
 
-      const fileData = JSON.parse(rawData as string) as StoredFileData;
       return {
         type: fileData.type,
         filename: fileData.filename,
         uploaded: fileData.uploaded,
-        size: Math.ceil((fileData.data.length * 3) / 4), // Approximate size from base64
+        localPath: fileData.localPath,
+        downloadUrl: fileData.downloadUrl,
+        size: fileData.size,
       };
     } catch (error) {
       console.error("Error getting file info:", error);
@@ -123,14 +157,77 @@ export class StorageManager {
   /**
    * List all files in storage
    */
-  async listFiles(): Promise<string[]> {
+  async listFiles(): Promise<Array<{
+    key: string;
+    type: string;
+    filename: string;
+    uploaded: string;
+    localPath: string;
+    downloadUrl: string;
+    size: number;
+  }>> {
     try {
-      const keys = (await storage.list(this.bucketPrefix) as unknown) as string[];
-      return keys;
+      const keys = await this.listMetadataKeys();
+      const files = await Promise.all(
+        keys.map(async (key) => {
+          const info = await this.getFileInfo(key);
+          return info ? { key, ...info } : null;
+        })
+      );
+      return files.filter((f): f is NonNullable<typeof f> => f !== null);
     } catch (error) {
       console.error("Error listing files:", error);
       throw error;
     }
+  }
+
+  /**
+   * Get storage statistics
+   */
+  async getStats(): Promise<{
+    totalFiles: number;
+    totalSize: number;
+    fileTypes: Record<string, number>;
+  }> {
+    try {
+      const files = await this.listFiles();
+      const stats = files.reduce(
+        (acc, file) => {
+          acc.totalSize += file.size;
+          acc.fileTypes[file.type] = (acc.fileTypes[file.type] || 0) + 1;
+          return acc;
+        },
+        { totalFiles: files.length, totalSize: 0, fileTypes: {} as Record<string, number> }
+      );
+      return stats;
+    } catch (error) {
+      console.error("Error getting storage stats:", error);
+      throw error;
+    }
+  }
+
+  // Private methods for metadata management
+  private async saveMetadata(key: string, data: StoredFileData): Promise<void> {
+    await storage.set(`meta:${key}`, JSON.stringify(data));
+  }
+
+  private async getMetadata(key: string): Promise<StoredFileData | null> {
+    const rawData = await storage.get(`meta:${key}`);
+    const data = rawData?.ok ? (rawData.value as string) : null;
+    return data ? JSON.parse(data) : null;
+  }
+
+  private async deleteMetadata(key: string): Promise<void> {
+    await storage.delete(`meta:${key}`);
+  }
+
+  private async listMetadataKeys(): Promise<string[]> {
+    const result = await storage.list('meta:');
+    if (!result.ok) {
+      return [];
+    }
+    const keys = result.value as string[];
+    return keys.map(key => key.replace('meta:', ''));
   }
 }
 

@@ -1,87 +1,99 @@
-import express, { type Request, Response, NextFunction } from "express";
-import path from "path";
-import { registerRoutes } from "./routes";
-import { setupVite, serveStatic } from "./vite";
-import { createServer } from "http";
-
-function log(message: string) {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-
-  console.log(`${formattedTime} [express] ${message}`);
-}
+import express from 'express';
+import session from 'express-session';
+import MemoryStore from 'memorystore';
+import passport from 'passport';
+import { Strategy as LocalStrategy } from 'passport-local';
+import axios from 'axios';
+import { WebSocket, WebSocketServer } from 'ws';
 
 const app = express();
+const port = process.env.PORT || 3000;
+const API_URL = process.env.API_URL || 'http://localhost:8000';
+
+// Session store setup
+const MemoryStoreSession = MemoryStore(session);
+
+// Middleware
 app.use(express.json());
-// Serve static files from public directory
-app.use(express.static(path.join(process.cwd(), "public")));
-app.use(express.urlencoded({ extended: false }));
+app.use(express.static('public'));
+app.use(session({
+  cookie: { maxAge: 86400000 },
+  store: new MemoryStoreSession({
+    checkPeriod: 86400000
+  }),
+  resave: false,
+  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  saveUninitialized: false,
+}));
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+// Initialize passport
+app.use(passport.initialize());
+app.use(passport.session());
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
+// WebSocket setup
+const wss = new WebSocketServer({ noServer: true });
 
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+// WebSocket connection handling
+wss.on('connection', (ws: WebSocket) => {
+  console.log('Client connected');
+
+  ws.on('message', async (message: string) => {
+    try {
+      const data = JSON.parse(message);
+      
+      switch (data.type) {
+        case 'get_updates':
+          // Send real-time updates about media processing
+          break;
+        
+        case 'get_stats':
+          const { data: stats } = await axios.get(`${API_URL}/api/stats`);
+          ws.send(JSON.stringify({ type: 'stats', data: stats }));
+          break;
+        
+        default:
+          console.log('Unknown message type:', data.type);
       }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
+    } catch (error) {
+      console.error('WebSocket error:', error);
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
     }
   });
 
-  next();
+  ws.on('close', () => {
+    console.log('Client disconnected');
+  });
 });
 
-(async () => {
+// API Routes
+app.get('/api/channels', async (req, res) => {
   try {
-    // Initialize storage
-    const { storageManager } = await import("./storage-manager");
-    const { setupStorage } = await import("../scripts/setup-storage");
-    await setupStorage();
-    
-    registerRoutes(app);
-    const server = createServer(app);
-
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    res.status(status).json({ message });
-    throw err;
-  });
-
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+    const { data: channels } = await axios.get(`${API_URL}/api/channels`);
+    res.json(channels);
+  } catch (error) {
+    console.error('Error fetching channels:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
+});
 
-  // ALWAYS serve the app on port 5000
-  // this serves both the API and the client
-  const PORT = 5000;
-  server.listen(PORT, "0.0.0.0", () => {
-    log(`serving on port ${PORT}`);
+app.get('/api/media', async (req, res) => {
+  try {
+    const { data: media } = await axios.get(`${API_URL}/api/media`);
+    res.json(media);
+  } catch (error) {
+    console.error('Error fetching media:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Start server
+const server = app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+
+// Integrate WebSocket server with HTTP server
+server.on('upgrade', (request, socket, head) => {
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
   });
-})();
+});
