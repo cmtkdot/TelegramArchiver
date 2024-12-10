@@ -58,16 +58,32 @@ async def get_bot_channels():
                     ))
                     conn.commit()
         except TelegramError as e:
-            logger.error(f"Error accessing channel {specific_channel_id}: {e}")
+            error_message = f"Error accessing channel {specific_channel_id}: {e}"
+            error_details = """
+Bot Access Error Details:
+1. If you see 'ChatNotFound': The bot is not a member of the channel
+2. If you see 'Forbidden': The bot is in the channel but lacks required permissions
+3. If you see 'Unauthorized': The bot token might be incorrect or revoked
+
+Please ensure:
+1. The bot (@{me.username}) is added to the channel
+2. The bot is an administrator
+3. The bot has all required permissions enabled
+"""
+            logger.error(error_message)
+            logger.info(error_details)
+            
             # Log error details
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
                         INSERT INTO system_logs (level, message, metadata)
                         VALUES (%s, %s, %s)
-                    """, ('error', f'Error accessing channel {specific_channel_id}', Json({
+                    """, ('error', error_message + "\n" + error_details, Json({
                         'error': str(e),
-                        'channel_id': specific_channel_id
+                        'error_type': type(e).__name__,
+                        'channel_id': specific_channel_id,
+                        'bot_username': me.username
                     })))
                     conn.commit()
         
