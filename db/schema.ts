@@ -41,6 +41,9 @@ export const media = pgTable("media", {
   downloadUrl: text("download_url"),
   status: text("status").default("pending"),
   metadata: jsonb("metadata"),
+  tags: text("tags").array(),
+  fileMetadata: jsonb("file_metadata"),
+  searchVector: text("search_vector"),
 });
 
 export const systemLogs = pgTable("system_logs", {
@@ -78,9 +81,13 @@ export const selectMediaSchema = createSelectSchema(media);
 // Custom Media types with frontend-specific fields
 export type Media = z.infer<typeof selectMediaSchema>;
 export type InsertMedia = z.infer<typeof insertMediaSchema>;
-export type MediaResponse = Omit<Media, 'fileSize'> & {
+// Custom Media types with frontend-specific fields
+export type Media = z.infer<typeof selectMediaSchema>;
+export type InsertMedia = z.infer<typeof insertMediaSchema>;
+export type MediaResponse = Omit<Media, 'fileSize' | 'fileMetadata' | 'searchVector'> & {
   fileSize: string;
   downloadUrl: string;
+  tags: string[];
 };
 
 // Schema for system logs operations

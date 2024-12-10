@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { fetchChannels, fetchSystemStats, ChannelWithStats, SystemStats } from '@/lib/api';
+import { fetchChannels, fetchSystemStats, searchMedia, SearchFilters } from '@/lib/api';
 import { MediaGallery } from './MediaGallery';
+import { SearchAndFilter } from './SearchAndFilter';
+import { TagManager } from './TagManager';
+import { MetadataViewer } from './MetadataViewer';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Database, Image, Video, HardDrive } from 'lucide-react';
+import { Database, Image, HardDrive, Inbox } from 'lucide-react';
 
 export function Dashboard() {
-  const [channels, setChannels] = useState<ChannelWithStats[]>([]);
-  const [stats, setStats] = useState<SystemStats | null>(null);
+  const [channels, setChannels] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>(null);
   const [selectedChannel, setSelectedChannel] = useState<number | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<any>(null);
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -33,6 +37,14 @@ export function Dashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleMediaSelect = (media: any) => {
+    setSelectedMedia(media);
+  };
+
+  const handleFiltersChange = async (filters: SearchFilters) => {
+    setSearchFilters(filters);
   };
 
   return (
@@ -101,12 +113,20 @@ export function Dashboard() {
           </div>
         )}
 
+        {/* Search and Filters */}
+        <div className="mb-6">
+          <SearchAndFilter onFiltersChange={handleFiltersChange} />
+        </div>
+
         {/* Main Content */}
         <div className="grid grid-cols-12 gap-6">
           {/* Channels Sidebar */}
           <Card className="col-span-12 lg:col-span-3">
             <CardHeader>
-              <CardTitle>Channels</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Inbox className="h-5 w-5" />
+                Channels
+              </CardTitle>
             </CardHeader>
             <ScrollArea className="h-[calc(100vh-20rem)]">
               <div className="space-y-1 p-2">
@@ -130,22 +150,53 @@ export function Dashboard() {
             </ScrollArea>
           </Card>
 
-          {/* Media Gallery */}
+          {/* Media Content */}
           <div className="col-span-12 lg:col-span-9">
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {selectedChannel
-                    ? channels.find(c => c.id === selectedChannel)?.title
-                    : 'Select a Channel'}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {selectedChannel && (
-                  <MediaGallery channelId={selectedChannel} />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Media Gallery */}
+              <div className="lg:col-span-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>
+                      {selectedChannel
+                        ? channels.find(c => c.id === selectedChannel)?.title
+                        : 'Select a Channel'}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {selectedChannel && (
+                      <MediaGallery
+                        channelId={selectedChannel}
+                        filters={searchFilters}
+                        onMediaSelect={handleMediaSelect}
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Media Details Sidebar */}
+              <div className="space-y-6">
+                {selectedMedia ? (
+                  <>
+                    <TagManager
+                      mediaId={selectedMedia.id}
+                      initialTags={selectedMedia.tags}
+                    />
+                    <MetadataViewer
+                      metadata={selectedMedia.fileMetadata}
+                      fileType={selectedMedia.mediaType}
+                    />
+                  </>
+                ) : (
+                  <Card>
+                    <CardContent className="p-8 text-center text-gray-500">
+                      Select a media item to view details
+                    </CardContent>
+                  </Card>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
         </div>
       </div>
